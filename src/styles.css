@@ -1,4 +1,11 @@
 .app-shell {
+  --ihub-black: #0b0b0b;
+  --ihub-black-soft: #141414;
+  --ihub-yellow: #f7de05;
+  --ihub-green: #74bd45;
+  --ihub-text: #111111;
+  --ihub-muted: #636363;
+  --ihub-line: #deded6;
   min-height: 100vh;
 }
 
@@ -10,9 +17,9 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 16px clamp(16px, 4vw, 48px);
-  background: rgba(255, 255, 255, 0.92);
-  border-bottom: 1px solid #dce3ee;
+  padding: 10px clamp(16px, 4vw, 48px);
+  background: var(--ihub-black);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
   backdrop-filter: blur(18px);
 }
 
@@ -29,17 +36,16 @@
 
 .brand {
   gap: 12px;
+  color: #ffffff;
 }
 
-.brand-mark {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  color: #ffffff;
-  background: #0f766e;
-  border-radius: 8px;
-  font-weight: 800;
+.brand-logo {
+  display: block;
+  width: 58px;
+  height: 58px;
+  object-fit: contain;
+  background: #ffffff;
+  border-radius: 12px;
 }
 
 .brand strong,
@@ -51,15 +57,19 @@
 .eyebrow,
 .room-card-meta,
 .reservation-row small {
-  color: #667085;
+  color: var(--ihub-muted);
   font-size: 0.82rem;
+}
+
+.brand small {
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .nav-tabs {
   gap: 8px;
   padding: 4px;
-  background: #eef3f8;
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
 }
 
 .nav-tabs a {
@@ -68,14 +78,14 @@
   gap: 8px;
   padding: 10px 14px;
   border-radius: 7px;
-  color: #475467;
+  color: rgba(255, 255, 255, 0.84);
   font-weight: 700;
 }
 
 .nav-tabs a.active {
-  color: #0f766e;
-  background: #ffffff;
-  box-shadow: 0 8px 24px rgba(15, 118, 110, 0.12);
+  color: var(--ihub-black);
+  background: var(--ihub-yellow);
+  box-shadow: 0 10px 24px rgba(247, 222, 5, 0.2);
 }
 
 main {
@@ -95,8 +105,10 @@ main {
   gap: 24px;
   align-items: end;
   padding: 32px;
-  background: #ffffff;
-  border: 1px solid #dce3ee;
+  background:
+    linear-gradient(135deg, rgba(11, 11, 11, 0.94), rgba(20, 20, 20, 0.9)),
+    #0b0b0b;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
   box-shadow: 0 16px 40px rgba(24, 33, 47, 0.08);
 }
@@ -114,6 +126,7 @@ main {
 }
 
 .hero-band h1 {
+  color: #ffffff;
   margin-top: 8px;
   font-size: clamp(2.1rem, 4vw, 4rem);
   letter-spacing: 0;
@@ -122,12 +135,13 @@ main {
 .hero-band p {
   max-width: 720px;
   margin: 14px 0 0;
-  color: #596579;
+  color: rgba(255, 255, 255, 0.78);
   font-size: 1.02rem;
   line-height: 1.65;
 }
 
 .eyebrow {
+  color: var(--ihub-yellow);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-weight: 800;
@@ -150,7 +164,7 @@ select {
   padding: 10px 12px;
   color: #18212f;
   background: #ffffff;
-  border: 1px solid #cfd8e5;
+  border: 1px solid var(--ihub-line);
   border-radius: 8px;
 }
 
@@ -175,14 +189,14 @@ select {
   overflow: hidden;
   text-align: left;
   background: #ffffff;
-  border: 1px solid #dce3ee;
+  border: 1px solid var(--ihub-line);
   border-radius: 8px;
   box-shadow: 0 12px 30px rgba(24, 33, 47, 0.06);
 }
 
 .room-card.selected {
   border-color: var(--room-accent);
-  box-shadow: 0 16px 36px rgba(15, 118, 110, 0.14);
+  box-shadow: 0 16px 36px rgba(116, 189, 69, 0.16);
 }
 
 .room-card-accent {
@@ -223,15 +237,15 @@ select {
   width: fit-content;
   padding: 6px 9px;
   color: #344054;
-  background: #eef3f8;
+  background: #f4f4ed;
   border-radius: 7px;
   font-size: 0.8rem;
   font-weight: 700;
 }
 
 .availability-pill {
-  color: #0f766e;
-  background: #dff7f3;
+  color: #17340e;
+  background: rgba(116, 189, 69, 0.2);
 }
 
 .booking-panel,
@@ -240,7 +254,7 @@ select {
 .modal-card {
   padding: 24px;
   background: #ffffff;
-  border: 1px solid #dce3ee;
+  border: 1px solid var(--ihub-line);
   border-radius: 8px;
   box-shadow: 0 16px 40px rgba(24, 33, 47, 0.08);
 }
@@ -264,9 +278,9 @@ select {
   gap: 4px;
   min-height: 68px;
   padding: 10px;
-  color: #0f766e;
-  background: #f4fbf9;
-  border: 1px solid #b8e6dd;
+  color: #17340e;
+  background: rgba(116, 189, 69, 0.12);
+  border: 1px solid rgba(116, 189, 69, 0.42);
   border-radius: 8px;
 }
 
@@ -278,9 +292,9 @@ select {
 }
 
 .slot-button.selected {
-  color: #ffffff;
-  background: #0f766e;
-  border-color: #0f766e;
+  color: #111111;
+  background: var(--ihub-yellow);
+  border-color: var(--ihub-yellow);
 }
 
 .slot-button span {
@@ -310,13 +324,13 @@ select {
 }
 
 .primary-button {
-  color: #ffffff;
-  background: #0f766e;
+  color: #151515;
+  background: var(--ihub-yellow);
 }
 
 .secondary-button {
-  color: #0f766e;
-  background: #dff7f3;
+  color: #0d1a13;
+  background: var(--ihub-green);
 }
 
 .danger-button {
@@ -329,14 +343,14 @@ select {
 
 .status-message {
   margin: 14px 0 0;
-  color: #0f766e;
+  color: #17340e;
   font-weight: 800;
 }
 
 .status-message.standalone {
   margin: 0;
   padding: 14px 16px;
-  background: #eafaf6;
+  background: rgba(116, 189, 69, 0.16);
   border-radius: 8px;
 }
 
@@ -356,7 +370,7 @@ select {
   height: 38px;
   place-items: center;
   color: #344054;
-  background: #eef3f8;
+  background: #f4f4ed;
   border: 0;
   border-radius: 8px;
 }
@@ -365,7 +379,7 @@ select {
   display: grid;
   grid-template-columns: 80px repeat(7, minmax(132px, 1fr));
   overflow-x: auto;
-  border: 1px solid #dce3ee;
+  border: 1px solid var(--ihub-line);
   border-radius: 8px;
 }
 
@@ -375,15 +389,15 @@ select {
 .calendar-cell {
   min-width: 0;
   padding: 10px;
-  border-right: 1px solid #dce3ee;
-  border-bottom: 1px solid #dce3ee;
+  border-right: 1px solid var(--ihub-line);
+  border-bottom: 1px solid var(--ihub-line);
 }
 
 .calendar-corner,
 .calendar-day-header,
 .calendar-time {
-  background: #f8fafc;
-  color: #475467;
+  background: #f4f4ed;
+  color: var(--ihub-muted);
   font-size: 0.82rem;
   font-weight: 850;
 }
@@ -401,9 +415,9 @@ select {
   gap: 3px;
   width: 100%;
   padding: 8px;
-  color: #ffffff;
+  color: #111111;
   text-align: left;
-  background: #2563eb;
+  background: var(--ihub-yellow);
   border: 0;
   border-radius: 7px;
 }
@@ -419,8 +433,8 @@ select {
   height: 28px;
   place-items: center;
   margin-top: auto;
-  color: #667085;
-  background: #eef3f8;
+  color: var(--ihub-muted);
+  background: #f4f4ed;
   border: 0;
   border-radius: 7px;
 }
@@ -435,8 +449,8 @@ select {
   width: 100%;
   padding: 12px 14px;
   text-align: left;
-  background: #f8fafc;
-  border: 1px solid #dce3ee;
+  background: #fbfbf6;
+  border: 1px solid var(--ihub-line);
   border-radius: 8px;
 }
 
@@ -447,7 +461,7 @@ select {
 
 .empty-state {
   margin: 0;
-  color: #667085;
+  color: var(--ihub-muted);
 }
 
 .modal-backdrop {

@@ -91,7 +91,7 @@ export function UserBookingPage() {
           <h1>Rezerva o sala</h1>
           <p>
             Alege data, sala si un slot de o ora intre 09:00 si 21:00. Nu ai nevoie
-            de cont pentru prima versiune.
+            de cont pentru prima versiune iHUB.
           </p>
         </div>
         <label className="date-control">
@@ -160,4 +160,3 @@ function emptyFormData(roomId: string, date: string, startTime: string): Reserva
     phone: '',
   }
 }
-

@@ -1,4 +1,4 @@
-# Pictime iHub Booking FE
+# iHUB Moldova Booking FE
 
 Frontend React + TypeScript pentru rezervarea salilor de conferinta.
 

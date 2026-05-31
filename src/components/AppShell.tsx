@@ -6,11 +6,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <NavLink to="/" className="brand" aria-label="Pictime iHub booking">
-          <span className="brand-mark">Pi</span>
+        <NavLink to="/" className="brand" aria-label="iHUB Moldova booking">
+          <img src="/ihub-logo.png" alt="iHUB Moldova" className="brand-logo" />
           <span>
-            <strong>Pictime iHub</strong>
-            <small>Conference booking</small>
+            <strong>iHUB Moldova</strong>
+            <small>Meeting room booking</small>
           </span>
         </NavLink>
 
@@ -30,4 +30,3 @@ export function AppShell({ children }: { children: ReactNode }) {
     </div>
   )
 }
-

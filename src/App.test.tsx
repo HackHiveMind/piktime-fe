@@ -21,7 +21,7 @@ describe('app routes', () => {
     )
 
     expect(screen.getByRole('heading', { name: /rezerva o sala/i })).toBeInTheDocument()
-    expect(screen.getAllByText('Sala Orion').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('iMEET Room').length).toBeGreaterThan(0)
     expect(screen.getByRole('link', { name: /admin/i })).toHaveAttribute('href', '/admin')
   })
 
@@ -30,7 +30,7 @@ describe('app routes', () => {
       reservation({
         firstName: 'Ana',
         lastName: 'Popescu',
-        roomId: 'orion',
+        roomId: 'imeet',
         date: '2026-06-01',
         startTime: '09:00',
       }),
@@ -44,14 +44,14 @@ describe('app routes', () => {
 
     expect(screen.getByRole('heading', { name: /calendar admin/i })).toBeInTheDocument()
     expect(screen.getAllByText(/Ana Popescu/).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/Sala Orion/).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/iMEET Room/).length).toBeGreaterThan(0)
   })
 })
 
 function reservation(overrides: Partial<Reservation>): Reservation {
   return {
     id: 'reservation-default',
-    roomId: 'orion',
+    roomId: 'imeet',
     date: '2026-06-01',
     startTime: '09:00',
     endTime: '10:00',
