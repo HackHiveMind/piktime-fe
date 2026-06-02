@@ -24,6 +24,32 @@ describe('reservation store', () => {
     expect(getReservations()).toEqual([reservation({ id: 'r-1' })])
   })
 
+  it('hydrates older reservations with default status and notes', () => {
+    localStorage.setItem(
+      'pictime-ihub-reservations',
+      JSON.stringify([
+        {
+          id: 'r-legacy',
+          roomId: 'room-a',
+          date: '2026-06-01',
+          startTime: '09:00',
+          endTime: '10:00',
+          firstName: 'Legacy',
+          lastName: 'Guest',
+          email: 'legacy@example.com',
+          phone: '060000000',
+          createdAt: '2026-05-31T12:00:00.000Z',
+        },
+      ]),
+    )
+
+    expect(getReservations()[0]).toMatchObject({
+      id: 'r-legacy',
+      status: 'confirmed',
+      notes: '',
+    })
+  })
+
   it('upserts a new reservation at the front of the list', () => {
     saveReservations([reservation({ id: 'r-1', firstName: 'Ana' })])
 
@@ -61,6 +87,8 @@ function reservation(overrides: Partial<Reservation>): Reservation {
     lastName: 'Guest',
     email: 'guest@example.com',
     phone: '060000000',
+    status: 'confirmed',
+    notes: '',
     createdAt: '2026-05-31T12:00:00.000Z',
     ...overrides,
   }

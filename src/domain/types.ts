@@ -13,19 +13,27 @@ export type TimeSlot = {
   label: string
 }
 
+export type ReservationStatus = 'confirmed' | 'pending' | 'cancelled' | 'no-show'
+
+export type CalendarView = 'day' | 'week' | 'month' | 'agenda'
+
 export type ReservationFormData = {
   roomId: string
   date: string
   startTime: string
+  endTime?: string
   firstName: string
   lastName: string
   email: string
   phone: string
+  status?: ReservationStatus
+  notes?: string
 }
 
 export type Reservation = ReservationFormData & {
   id: string
   endTime: string
   createdAt: string
+  status: ReservationStatus
+  notes: string
 }
-

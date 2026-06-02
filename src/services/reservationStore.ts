@@ -1,4 +1,4 @@
-import type { Reservation } from '../domain/types'
+import type { Reservation, ReservationStatus } from '../domain/types'
 
 const STORAGE_KEY = 'pictime-ihub-reservations'
 
@@ -11,7 +11,7 @@ export function getReservations(): Reservation[] {
 
   try {
     const parsed = JSON.parse(rawReservations)
-    return Array.isArray(parsed) ? parsed : []
+    return Array.isArray(parsed) ? parsed.map(normalizeStoredReservation) : []
   } catch {
     return []
   }
@@ -44,4 +44,18 @@ export function deleteReservation(reservationId: string): Reservation[] {
   )
   saveReservations(nextReservations)
   return nextReservations
+}
+
+function normalizeStoredReservation(reservation: Reservation): Reservation {
+  return {
+    ...reservation,
+    status: getStoredStatus(reservation.status),
+    notes: reservation.notes ?? '',
+  }
+}
+
+function getStoredStatus(status: ReservationStatus | undefined): ReservationStatus {
+  return status && ['confirmed', 'pending', 'cancelled', 'no-show'].includes(status)
+    ? status
+    : 'confirmed'
 }
