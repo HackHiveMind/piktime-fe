@@ -140,6 +140,12 @@ export function UserBookingPage() {
       return
     }
 
+    const validationMessage = getReservationValidationMessage(formData)
+    if (validationMessage) {
+      setMessage(validationMessage)
+      return
+    }
+
     const conflict = findConflictingReservation(reservations, formData)
     if (conflict) {
       setMessage('Slotul a fost deja rezervat. Alege alta ora.')
@@ -243,6 +249,30 @@ export function UserBookingPage() {
       </section>
     </div>
   )
+}
+
+function getReservationValidationMessage(formData: ReservationFormData): string {
+  if (!formData.lastName.trim()) {
+    return 'Completeaza numele.'
+  }
+
+  if (!formData.firstName.trim()) {
+    return 'Completeaza prenumele.'
+  }
+
+  if (!formData.email.trim()) {
+    return 'Completeaza emailul.'
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+    return 'Introdu un email valid.'
+  }
+
+  if (!formData.phone.trim()) {
+    return 'Completeaza numarul de telefon.'
+  }
+
+  return ''
 }
 
 function mergeRoomMetadata(room: Pick<Room, 'id' | 'name' | 'capacity'>): Room {
