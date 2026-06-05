@@ -37,3 +37,16 @@ export type Reservation = ReservationFormData & {
   status: ReservationStatus
   notes: string
 }
+
+export type RoomBlockFormData = {
+  roomId: string
+  startTime: string
+  endTime: string
+  notes?: string
+}
+
+export type RoomBlock = RoomBlockFormData & {
+  id: string
+  createdAt: string
+  notes: string
+}

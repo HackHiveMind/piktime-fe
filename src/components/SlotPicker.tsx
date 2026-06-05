@@ -1,18 +1,24 @@
-import { findConflictingReservation, getTimeSlots } from '../domain/booking'
-import type { Reservation } from '../domain/types'
+import {
+  findConflictingReservation,
+  findConflictingRoomBlock,
+  getTimeSlots,
+} from '../domain/booking'
+import type { Reservation, RoomBlock, TimeSlot } from '../domain/types'
 
 type SlotPickerProps = {
   roomId: string
   date: string
   reservations: Reservation[]
+  roomBlocks: RoomBlock[]
   selectedSlot: string
-  onSelectSlot: (slot: string) => void
+  onSelectSlot: (slot: TimeSlot) => void
 }
 
 export function SlotPicker({
   roomId,
   date,
   reservations,
+  roomBlocks,
   selectedSlot,
   onSelectSlot,
 }: SlotPickerProps) {
@@ -24,24 +30,32 @@ export function SlotPicker({
             roomId,
             date,
             startTime: slot.start,
+            endTime: slot.end,
+          }),
+        )
+        const isBlocked = Boolean(
+          findConflictingRoomBlock(roomBlocks, {
+            roomId,
+            startTime: slot.start,
+            endTime: slot.end,
           }),
         )
         const isSelected = selectedSlot === slot.start
+        const slotState = isBlocked ? 'Blocat' : isBooked ? 'Ocupat' : 'Liber'
 
         return (
           <button
             key={slot.start}
             type="button"
             className={`slot-button ${isSelected ? 'selected' : ''}`}
-            disabled={isBooked}
-            onClick={() => onSelectSlot(slot.start)}
+            disabled={isBooked || isBlocked}
+            onClick={() => onSelectSlot(slot)}
           >
             <strong>{slot.start}</strong>
-            <span>{isBooked ? 'Ocupat' : 'Liber'}</span>
+            <span>{slotState}</span>
           </button>
         )
       })}
     </div>
   )
 }
-

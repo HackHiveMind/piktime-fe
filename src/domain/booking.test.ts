@@ -3,31 +3,38 @@ import {
   BOOKING_END_HOUR,
   BOOKING_START_HOUR,
   createReservation,
+  createRoomBlock,
   filterReservations,
+  findConflictingRoomBlock,
   findConflictingReservation,
   getCalendarDates,
   getReservationStats,
   getTimeSlots,
   updateReservation,
 } from './booking'
-import type { Reservation } from './types'
+import type { Reservation, RoomBlock } from './types'
 
 describe('booking domain', () => {
-  it('generates one-hour slots from 09:00 until 21:00', () => {
+  it('generates thirty-minute slots from 09:00 until 21:00', () => {
     const slots = getTimeSlots()
 
     expect(BOOKING_START_HOUR).toBe(9)
     expect(BOOKING_END_HOUR).toBe(21)
-    expect(slots).toHaveLength(12)
+    expect(slots).toHaveLength(24)
     expect(slots[0]).toEqual({
       start: '09:00',
+      end: '09:30',
+      label: '09:00 - 09:30',
+    })
+    expect(slots[1]).toEqual({
+      start: '09:30',
       end: '10:00',
-      label: '09:00 - 10:00',
+      label: '09:30 - 10:00',
     })
     expect(slots.at(-1)).toEqual({
-      start: '20:00',
+      start: '20:30',
       end: '21:00',
-      label: '20:00 - 21:00',
+      label: '20:30 - 21:00',
     })
   })
 
@@ -248,6 +255,47 @@ describe('booking domain', () => {
       cancelled: 1,
     })
   })
+
+  it('creates room blocks with normalized notes', () => {
+    const block = createRoomBlock({
+      roomId: 'room-a',
+      startTime: '13:00',
+      endTime: '15:00',
+      notes: '  Private event  ',
+    })
+
+    expect(block).toMatchObject({
+      roomId: 'room-a',
+      startTime: '13:00',
+      endTime: '15:00',
+      notes: 'Private event',
+    })
+    expect(block.id).toMatch(/^block-/)
+    expect(block.createdAt).toMatch(/T/)
+  })
+
+  it('finds a room block conflict by room and overlapping time without using date', () => {
+    const blocks: RoomBlock[] = [
+      roomBlock({ id: 'block-1', roomId: 'room-a', startTime: '13:00', endTime: '15:00' }),
+      roomBlock({ id: 'block-2', roomId: 'room-b', startTime: '13:00', endTime: '15:00' }),
+    ]
+
+    expect(
+      findConflictingRoomBlock(blocks, {
+        roomId: 'room-a',
+        startTime: '14:30',
+        endTime: '15:00',
+      })?.id,
+    ).toBe('block-1')
+
+    expect(
+      findConflictingRoomBlock(blocks, {
+        roomId: 'room-a',
+        startTime: '15:00',
+        endTime: '15:30',
+      }),
+    ).toBeUndefined()
+  })
 })
 
 function reservation(overrides: Partial<Reservation>): Reservation {
@@ -262,6 +310,18 @@ function reservation(overrides: Partial<Reservation>): Reservation {
     email: 'guest@example.com',
     phone: '060000000',
     status: 'confirmed',
+    notes: '',
+    createdAt: '2026-05-31T12:00:00.000Z',
+    ...overrides,
+  }
+}
+
+function roomBlock(overrides: Partial<RoomBlock>): RoomBlock {
+  return {
+    id: 'block-default',
+    roomId: 'room-a',
+    startTime: '09:00',
+    endTime: '10:00',
     notes: '',
     createdAt: '2026-05-31T12:00:00.000Z',
     ...overrides,

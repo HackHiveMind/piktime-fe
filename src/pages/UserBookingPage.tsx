@@ -7,10 +7,11 @@ import { rooms } from '../data/rooms'
 import {
   createReservation,
   findConflictingReservation,
+  findConflictingRoomBlock,
   getTimeSlots,
 } from '../domain/booking'
-import type { Reservation, ReservationFormData } from '../domain/types'
-import { getReservations, upsertReservation } from '../services/reservationStore'
+import type { Reservation, ReservationFormData, RoomBlock, TimeSlot } from '../domain/types'
+import { getReservations, getRoomBlocks, upsertReservation } from '../services/reservationStore'
 
 const today = new Date().toISOString().slice(0, 10)
 
@@ -19,6 +20,7 @@ export function UserBookingPage() {
   const [selectedRoomId, setSelectedRoomId] = useState(rooms[0].id)
   const [selectedSlot, setSelectedSlot] = useState('')
   const [reservations, setReservations] = useState<Reservation[]>(() => getReservations())
+  const [roomBlocks] = useState<RoomBlock[]>(() => getRoomBlocks())
   const [message, setMessage] = useState('')
   const [formData, setFormData] = useState<ReservationFormData>(() =>
     emptyFormData(rooms[0].id, today, ''),
@@ -36,30 +38,42 @@ export function UserBookingPage() {
               roomId: room.id,
               date,
               startTime: slot.start,
+              endTime: slot.end,
+            }) &&
+            !findConflictingRoomBlock(roomBlocks, {
+              roomId: room.id,
+              startTime: slot.start,
+              endTime: slot.end,
             }),
         ).length,
       ]),
     )
-  }, [date, reservations])
+  }, [date, reservations, roomBlocks])
 
   const handleRoomSelect = (roomId: string) => {
     setSelectedRoomId(roomId)
     setSelectedSlot('')
     setMessage('')
-    setFormData((current) => ({ ...current, roomId, date, startTime: '' }))
+    setFormData((current) => ({ ...current, roomId, date, startTime: '', endTime: undefined }))
   }
 
-  const handleSlotSelect = (slot: string) => {
-    setSelectedSlot(slot)
+  const handleSlotSelect = (slot: TimeSlot) => {
+    setSelectedSlot(slot.start)
     setMessage('')
-    setFormData((current) => ({ ...current, roomId: selectedRoomId, date, startTime: slot }))
+    setFormData((current) => ({
+      ...current,
+      roomId: selectedRoomId,
+      date,
+      startTime: slot.start,
+      endTime: slot.end,
+    }))
   }
 
   const handleDateChange = (nextDate: string) => {
     setDate(nextDate)
     setSelectedSlot('')
     setMessage('')
-    setFormData((current) => ({ ...current, date: nextDate, startTime: '' }))
+    setFormData((current) => ({ ...current, date: nextDate, startTime: '', endTime: undefined }))
   }
 
   const handleSubmit = () => {
@@ -72,6 +86,16 @@ export function UserBookingPage() {
     if (conflict) {
       setMessage('Slotul a fost deja rezervat. Alege alta ora.')
       setReservations(getReservations())
+      return
+    }
+
+    const blockConflict = findConflictingRoomBlock(roomBlocks, {
+      roomId: formData.roomId,
+      startTime: formData.startTime,
+      endTime: formData.endTime ?? formData.startTime,
+    })
+    if (blockConflict) {
+      setMessage('Slotul este blocat de admin. Alege alta ora.')
       return
     }
 
@@ -90,7 +114,7 @@ export function UserBookingPage() {
           <span className="eyebrow">Booking sali conferinta</span>
           <h1>Rezerva o sala</h1>
           <p>
-            Alege data, sala si un slot de o ora intre 09:00 si 21:00. Nu ai nevoie
+            Alege data, sala si un slot de 30 de minute intre 09:00 si 21:00. Nu ai nevoie
             de cont pentru prima versiune iHUB.
           </p>
         </div>
@@ -126,6 +150,7 @@ export function UserBookingPage() {
             roomId={selectedRoomId}
             date={date}
             reservations={reservations}
+            roomBlocks={roomBlocks}
             selectedSlot={selectedSlot}
             onSelectSlot={handleSlotSelect}
           />

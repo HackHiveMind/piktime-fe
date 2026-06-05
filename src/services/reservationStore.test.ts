@@ -2,12 +2,16 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  deleteRoomBlock,
   deleteReservation,
+  getRoomBlocks,
   getReservations,
+  saveRoomBlocks,
   saveReservations,
+  upsertRoomBlock,
   upsertReservation,
 } from './reservationStore'
-import type { Reservation } from '../domain/types'
+import type { Reservation, RoomBlock } from '../domain/types'
 
 describe('reservation store', () => {
   beforeEach(() => {
@@ -74,6 +78,22 @@ describe('reservation store', () => {
 
     expect(getReservations().map((item) => item.id)).toEqual(['r-2'])
   })
+
+  it('saves and loads room blocks from localStorage', () => {
+    saveRoomBlocks([roomBlock({ id: 'b-1' })])
+
+    expect(getRoomBlocks()).toEqual([roomBlock({ id: 'b-1' })])
+  })
+
+  it('upserts and deletes room blocks by id', () => {
+    saveRoomBlocks([roomBlock({ id: 'b-1', startTime: '09:00' })])
+
+    upsertRoomBlock(roomBlock({ id: 'b-2', startTime: '13:00' }))
+    upsertRoomBlock(roomBlock({ id: 'b-1', startTime: '10:00' }))
+    deleteRoomBlock('b-2')
+
+    expect(getRoomBlocks()).toEqual([roomBlock({ id: 'b-1', startTime: '10:00' })])
+  })
 })
 
 function reservation(overrides: Partial<Reservation>): Reservation {
@@ -88,6 +108,18 @@ function reservation(overrides: Partial<Reservation>): Reservation {
     email: 'guest@example.com',
     phone: '060000000',
     status: 'confirmed',
+    notes: '',
+    createdAt: '2026-05-31T12:00:00.000Z',
+    ...overrides,
+  }
+}
+
+function roomBlock(overrides: Partial<RoomBlock>): RoomBlock {
+  return {
+    id: 'block-default',
+    roomId: 'room-a',
+    startTime: '09:00',
+    endTime: '10:00',
     notes: '',
     createdAt: '2026-05-31T12:00:00.000Z',
     ...overrides,

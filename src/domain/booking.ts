@@ -3,6 +3,8 @@ import type {
   Reservation,
   ReservationFormData,
   ReservationStatus,
+  RoomBlock,
+  RoomBlockFormData,
   TimeSlot,
 } from './types'
 
@@ -19,11 +21,13 @@ export const RESERVATION_STATUSES: Array<{
 ]
 
 export function getTimeSlots(): TimeSlot[] {
-  return Array.from({ length: BOOKING_END_HOUR - BOOKING_START_HOUR }, (_, index) => {
-    const startHour = BOOKING_START_HOUR + index
-    const endHour = startHour + 1
-    const start = formatHour(startHour)
-    const end = formatHour(endHour)
+  const startMinutes = BOOKING_START_HOUR * 60
+  const endMinutes = BOOKING_END_HOUR * 60
+  const slotCount = (endMinutes - startMinutes) / 30
+
+  return Array.from({ length: slotCount }, (_, index) => {
+    const start = formatMinutes(startMinutes + index * 30)
+    const end = formatMinutes(startMinutes + (index + 1) * 30)
 
     return {
       start,
@@ -57,11 +61,43 @@ export function findConflictingReservation(
   )
 }
 
+export function findConflictingRoomBlock(
+  blocks: RoomBlock[],
+  candidate: Pick<RoomBlockFormData, 'roomId' | 'startTime' | 'endTime'>,
+  ignoreBlockId?: string,
+): RoomBlock | undefined {
+  const candidateStart = timeToMinutes(candidate.startTime)
+  const candidateEnd = timeToMinutes(candidate.endTime)
+
+  return blocks.find((block) => {
+    const blockStart = timeToMinutes(block.startTime)
+    const blockEnd = timeToMinutes(block.endTime)
+
+    return (
+      block.id !== ignoreBlockId &&
+      block.roomId === candidate.roomId &&
+      blockStart < candidateEnd &&
+      candidateStart < blockEnd
+    )
+  })
+}
+
 export function createReservation(formData: ReservationFormData): Reservation {
   return {
     ...normalizeFormData(formData),
     id: `reservation-${crypto.randomUUID()}`,
     endTime: formData.endTime ?? getEndTime(formData.startTime),
+    createdAt: new Date().toISOString(),
+  }
+}
+
+export function createRoomBlock(formData: RoomBlockFormData): RoomBlock {
+  return {
+    roomId: formData.roomId,
+    startTime: formData.startTime,
+    endTime: formData.endTime,
+    notes: formData.notes?.trim() ?? '',
+    id: `block-${crypto.randomUUID()}`,
     createdAt: new Date().toISOString(),
   }
 }
@@ -187,6 +223,12 @@ function normalizeFormData(formData: ReservationFormData): NormalizedReservation
 
 function formatHour(hour: number): string {
   return `${String(hour).padStart(2, '0')}:00`
+}
+
+function formatMinutes(minutes: number): string {
+  const hours = Math.floor(minutes / 60)
+  const minutesPart = minutes % 60
+  return `${String(hours).padStart(2, '0')}:${String(minutesPart).padStart(2, '0')}`
 }
 
 function timeToMinutes(time: string): number {

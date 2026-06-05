@@ -20,9 +20,11 @@ import { ReservationForm } from '../components/ReservationForm'
 import { rooms } from '../data/rooms'
 import {
   RESERVATION_STATUSES,
+  createRoomBlock,
   createReservation,
   filterReservations,
   findConflictingReservation,
+  findConflictingRoomBlock,
   formatDisplayDate,
   getCalendarDates,
   getReservationStats,
@@ -35,10 +37,15 @@ import type {
   ReservationFormData,
   ReservationStatus,
   Room,
+  RoomBlock,
+  RoomBlockFormData,
 } from '../domain/types'
 import {
+  deleteRoomBlock,
   deleteReservation,
+  getRoomBlocks,
   getReservations,
+  upsertRoomBlock,
   upsertReservation,
 } from '../services/reservationStore'
 
@@ -56,6 +63,8 @@ type AdminSection = 'calendar' | 'bookings' | 'customers' | 'rooms' | 'reports'
 type ModalState =
   | { mode: 'create'; date: string; startTime: string; roomId: string }
   | { mode: 'edit'; reservation: Reservation }
+  | { mode: 'block-create' }
+  | { mode: 'block-edit'; block: RoomBlock }
   | null
 
 const adminSections: Array<{
@@ -72,6 +81,7 @@ const adminSections: Array<{
 
 export function AdminCalendarPage() {
   const [reservations, setReservations] = useState<Reservation[]>(() => getReservations())
+  const [roomBlocks, setRoomBlocks] = useState<RoomBlock[]>(() => getRoomBlocks())
   const [section, setSection] = useState<AdminSection>('calendar')
   const [calendarView, setCalendarView] = useState<CalendarView>('day')
   const [anchorDate, setAnchorDate] = useState(() => reservations[0]?.date ?? today)
@@ -82,6 +92,11 @@ export function AdminCalendarPage() {
   const [formData, setFormData] = useState<ReservationFormData>(() =>
     emptyFormData(rooms[0].id, today, '09:00'),
   )
+  const [blockFormData, setBlockFormData] = useState<RoomBlockFormData>(() =>
+    emptyBlockFormData(rooms[0].id, '09:00', '10:00'),
+  )
+  const [additionalDates, setAdditionalDates] = useState<string[]>([])
+  const [additionalDateDraft, setAdditionalDateDraft] = useState('')
   const [message, setMessage] = useState('')
 
   const calendarDates = useMemo(
@@ -105,6 +120,27 @@ export function AdminCalendarPage() {
     const roomId = selectedRoomId ?? (roomFilter === 'all' ? rooms[0].id : roomFilter)
     setFormData(emptyFormData(roomId, date, startTime, endTime))
     setModal({ mode: 'create', date, startTime, roomId })
+    setAdditionalDates([])
+    setAdditionalDateDraft('')
+    setMessage('')
+  }
+
+  const openBlockModal = (block?: RoomBlock) => {
+    if (block) {
+      setBlockFormData({
+        roomId: block.roomId,
+        startTime: block.startTime,
+        endTime: block.endTime,
+        notes: block.notes,
+      })
+      setModal({ mode: 'block-edit', block })
+      setMessage('')
+      return
+    }
+
+    const roomId = roomFilter === 'all' ? rooms[0].id : roomFilter
+    setBlockFormData(emptyBlockFormData(roomId, '09:00', '10:00'))
+    setModal({ mode: 'block-create' })
     setMessage('')
   }
 
@@ -122,7 +158,53 @@ export function AdminCalendarPage() {
       notes: reservation.notes,
     })
     setModal({ mode: 'edit', reservation })
+    setAdditionalDates([])
+    setAdditionalDateDraft('')
     setMessage('')
+  }
+
+  const openCopyModal = (reservation: Reservation) => {
+    setFormData({
+      roomId: reservation.roomId,
+      date: reservation.date,
+      startTime: reservation.startTime,
+      endTime: reservation.endTime,
+      firstName: reservation.firstName,
+      lastName: reservation.lastName,
+      email: reservation.email,
+      phone: reservation.phone,
+      status: reservation.status,
+      notes: reservation.notes,
+    })
+    setModal({
+      mode: 'create',
+      date: reservation.date,
+      startTime: reservation.startTime,
+      roomId: reservation.roomId,
+    })
+    setAdditionalDates([])
+    setAdditionalDateDraft('')
+    setMessage('')
+  }
+
+  const addAdditionalDate = () => {
+    if (!isDateInputValue(additionalDateDraft)) {
+      setMessage('Alege o data valida inainte sa o adaugi.')
+      return
+    }
+
+    if (additionalDateDraft === formData.date || additionalDates.includes(additionalDateDraft)) {
+      setMessage('Data este deja in lista.')
+      return
+    }
+
+    setAdditionalDates((current) => [...current, additionalDateDraft].sort())
+    setAdditionalDateDraft('')
+    setMessage('')
+  }
+
+  const removeAdditionalDate = (date: string) => {
+    setAdditionalDates((current) => current.filter((item) => item !== date))
   }
 
   const handleSubmit = () => {
@@ -136,6 +218,55 @@ export function AdminCalendarPage() {
 
     if (conflict && formData.status !== 'cancelled') {
       setMessage('Exista deja o rezervare pentru sala, data si ora selectata.')
+      return
+    }
+
+    const blockConflict = findConflictingRoomBlock(roomBlocks, {
+      roomId: formData.roomId,
+      startTime: formData.startTime,
+      endTime: formData.endTime ?? getEndTimeLabel(formData.startTime),
+    })
+    if (blockConflict && formData.status !== 'cancelled') {
+      setMessage('Sala este blocata in intervalul selectat.')
+      return
+    }
+
+    if (modal?.mode === 'create') {
+      const parsedDates = getBatchDates(formData.date, additionalDates)
+
+      if (parsedDates.invalid.length > 0) {
+        setMessage(`Date invalide: ${parsedDates.invalid.join(', ')}`)
+        return
+      }
+
+      let nextReservations = reservations
+      const skippedDates: string[] = []
+      const createdReservations: Reservation[] = []
+
+      parsedDates.dates.forEach((date) => {
+        const nextFormData = { ...formData, date }
+        const reservationConflict = findConflictingReservation(nextReservations, nextFormData)
+        const blockConflict = findConflictingRoomBlock(roomBlocks, {
+          roomId: nextFormData.roomId,
+          startTime: nextFormData.startTime,
+          endTime: nextFormData.endTime ?? getEndTimeLabel(nextFormData.startTime),
+        })
+
+        if (reservationConflict || blockConflict) {
+          skippedDates.push(date)
+          return
+        }
+
+        const reservation = createReservation(nextFormData)
+        nextReservations = upsertReservation(reservation)
+        createdReservations.push(reservation)
+      })
+
+      setReservations(nextReservations)
+      setModal(null)
+      setAdditionalDates([])
+      setAdditionalDateDraft('')
+      setMessage(getBatchCreateMessage(createdReservations.length, skippedDates))
       return
     }
 
@@ -159,6 +290,45 @@ export function AdminCalendarPage() {
     setReservations(nextReservations)
     setModal(null)
     setMessage('Booking removed.')
+  }
+
+  const handleBlockSubmit = () => {
+    if (timeToMinutes(blockFormData.endTime) <= timeToMinutes(blockFormData.startTime)) {
+      setMessage('Ora de final trebuie sa fie dupa ora de start.')
+      return
+    }
+
+    const ignoreId = modal?.mode === 'block-edit' ? modal.block.id : undefined
+    const blockConflict = findConflictingRoomBlock(roomBlocks, blockFormData, ignoreId)
+    if (blockConflict) {
+      setMessage('Sala este deja blocata in acest interval.')
+      return
+    }
+
+    const block =
+      modal?.mode === 'block-edit'
+        ? {
+            ...modal.block,
+            ...blockFormData,
+            notes: blockFormData.notes?.trim() ?? '',
+          }
+        : createRoomBlock(blockFormData)
+
+    const nextBlocks = upsertRoomBlock(block)
+    setRoomBlocks(nextBlocks)
+    setModal(null)
+    setMessage('Room block saved.')
+  }
+
+  const handleUnblock = () => {
+    if (modal?.mode !== 'block-edit') {
+      return
+    }
+
+    const nextBlocks = deleteRoomBlock(modal.block.id)
+    setRoomBlocks(nextBlocks)
+    setModal(null)
+    setMessage('Room unblocked.')
   }
 
   const handleQuickStatus = (status: ReservationStatus) => {
@@ -217,10 +387,15 @@ export function AdminCalendarPage() {
             <span className="eyebrow">Admin calendar</span>
             <h1>Calendar admin</h1>
           </div>
-          <button type="button" className="primary-button admin-new-button" onClick={() => openCreateModal(today, '09:00', '10:00')}>
-            <Plus size={18} />
-            New booking
-          </button>
+          <div className="admin-header-actions">
+            <button type="button" className="secondary-button admin-block-button" onClick={() => openBlockModal()}>
+              Block time
+            </button>
+            <button type="button" className="primary-button admin-new-button" onClick={() => openCreateModal(today, '09:00', '10:00')}>
+              <Plus size={18} />
+              New booking
+            </button>
+          </div>
         </header>
 
         {message ? <p className="status-message standalone">{message}</p> : null}
@@ -305,8 +480,10 @@ export function AdminCalendarPage() {
             dates={calendarDates}
             roomFilter={roomFilter}
             reservations={visibleReservations}
+            roomBlocks={roomBlocks}
             onCreate={openCreateModal}
             onEdit={openEditModal}
+            onEditBlock={openBlockModal}
           />
         ) : null}
 
@@ -323,6 +500,98 @@ export function AdminCalendarPage() {
 
       {modal ? (
         <div className="modal-backdrop" role="presentation">
+          {modal.mode === 'block-create' || modal.mode === 'block-edit' ? (
+            <section className="modal-card picktime-modal" role="dialog" aria-modal="true" aria-labelledby="block-modal-title">
+              <div className="modal-heading">
+                <div>
+                  <span className="eyebrow">
+                    {blockFormData.startTime} - {blockFormData.endTime}
+                  </span>
+                  <h2 id="block-modal-title">
+                    {modal.mode === 'block-edit' ? 'Blocked time' : 'Block time'}
+                  </h2>
+                </div>
+                <button type="button" className="icon-button" aria-label="Close modal" onClick={() => setModal(null)}>
+                  x
+                </button>
+              </div>
+
+              <div className="form-grid">
+                <label>
+                  Room
+                  <select
+                    value={blockFormData.roomId}
+                    onChange={(event) => setBlockFormData({ ...blockFormData, roomId: event.target.value })}
+                  >
+                    {rooms.map((room) => (
+                      <option key={room.id} value={room.id}>
+                        {room.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Start time
+                  <select
+                    value={blockFormData.startTime}
+                    onChange={(event) => {
+                      const nextStartTime = event.target.value
+                      const nextEndTime =
+                        timeToMinutes(blockFormData.endTime) > timeToMinutes(nextStartTime)
+                          ? blockFormData.endTime
+                          : addMinutes(nextStartTime, 60)
+
+                      setBlockFormData({
+                        ...blockFormData,
+                        startTime: nextStartTime,
+                        endTime: nextEndTime,
+                      })
+                    }}
+                  >
+                    {getStartTimeOptions().map((slot) => (
+                      <option key={slot.value} value={slot.value}>
+                        {slot.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  End time
+                  <select
+                    value={blockFormData.endTime}
+                    onChange={(event) => setBlockFormData({ ...blockFormData, endTime: event.target.value })}
+                  >
+                    {getEndTimeOptions(blockFormData.startTime).map((slot) => (
+                      <option key={slot.value} value={slot.value}>
+                        {slot.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Notes
+                  <textarea
+                    value={blockFormData.notes ?? ''}
+                    onChange={(event) => setBlockFormData({ ...blockFormData, notes: event.target.value })}
+                    placeholder="Internal notes"
+                  />
+                </label>
+              </div>
+
+              <div className="modal-actions">
+                <button type="button" className="primary-button" onClick={handleBlockSubmit}>
+                  Block room
+                </button>
+                {modal.mode === 'block-edit' ? (
+                  <button type="button" className="danger-button" onClick={handleUnblock}>
+                    Unblock
+                  </button>
+                ) : null}
+              </div>
+
+              {message ? <p className="form-error">{message}</p> : null}
+            </section>
+          ) : (
           <section className="modal-card picktime-modal" role="dialog" aria-modal="true" aria-labelledby="reservation-modal-title">
             <div className="modal-heading">
               <div>
@@ -383,10 +652,45 @@ export function AdminCalendarPage() {
               </label>
             </div>
 
+            {modal.mode === 'create' ? (
+              <div className="multi-date-field">
+                <div className="multi-date-picker">
+                  <label>
+                    Additional date
+                    <input
+                      type="date"
+                      value={additionalDateDraft}
+                      onChange={(event) => setAdditionalDateDraft(event.target.value)}
+                    />
+                  </label>
+                  <button type="button" className="secondary-button" onClick={addAdditionalDate}>
+                    Add date
+                  </button>
+                </div>
+                {additionalDates.length > 0 ? (
+                  <div className="selected-date-list" aria-label="Selected additional dates">
+                    {additionalDates.map((date) => (
+                      <span key={date} className="selected-date-chip">
+                        {date}
+                        <button
+                          type="button"
+                          aria-label={`Remove ${date}`}
+                          onClick={() => removeAdditionalDate(date)}
+                        >
+                          x
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <small>Occupied dates are skipped automatically.</small>
+              </div>
+            ) : null}
+
             <ReservationForm
               rooms={rooms}
               value={formData}
-              submitLabel={modal.mode === 'edit' ? 'Save changes' : 'Create booking'}
+              submitLabel={modal.mode === 'edit' ? 'Save changes' : 'Create booking(s)'}
               onChange={setFormData}
               onSubmit={handleSubmit}
             />
@@ -426,6 +730,9 @@ export function AdminCalendarPage() {
                 <button type="button" className="text-button" onClick={() => handleQuickStatus('no-show')}>
                   Mark no-show
                 </button>
+                <button type="button" className="text-button" onClick={() => openCopyModal(modal.reservation)}>
+                  Copy booking
+                </button>
                 <button type="button" className="danger-button" onClick={handleDeleteReservation}>
                   <Trash2 size={18} />
                   Delete booking
@@ -435,6 +742,7 @@ export function AdminCalendarPage() {
 
             {message ? <p className="form-error">{message}</p> : null}
           </section>
+          )}
         </div>
       ) : null}
     </div>
@@ -470,15 +778,19 @@ function CalendarSection({
   dates,
   roomFilter,
   reservations,
+  roomBlocks,
   onCreate,
   onEdit,
+  onEditBlock,
 }: {
   view: CalendarView
   dates: string[]
   roomFilter: string
   reservations: Reservation[]
+  roomBlocks: RoomBlock[]
   onCreate: (date: string, startTime: string, endTime?: string, roomId?: string) => void
   onEdit: (reservation: Reservation) => void
+  onEditBlock: (block: RoomBlock) => void
 }) {
   if (view === 'agenda') {
     return <BookingList reservations={reservations} onEdit={onEdit} />
@@ -515,8 +827,10 @@ function CalendarSection({
         date={dates[0]}
         roomFilter={roomFilter}
         reservations={reservations}
+        roomBlocks={roomBlocks}
         onCreate={onCreate}
         onEdit={onEdit}
+        onEditBlock={onEditBlock}
       />
     )
   }
@@ -550,14 +864,18 @@ function DailyResourceCalendar({
   date,
   roomFilter,
   reservations,
+  roomBlocks,
   onCreate,
   onEdit,
+  onEditBlock,
 }: {
   date: string
   roomFilter: string
   reservations: Reservation[]
+  roomBlocks: RoomBlock[]
   onCreate: (date: string, startTime: string, endTime?: string, roomId?: string) => void
   onEdit: (reservation: Reservation) => void
+  onEditBlock: (block: RoomBlock) => void
 }) {
   const [dragSelection, setDragSelection] = useState<{
     roomId: string
@@ -610,7 +928,9 @@ function DailyResourceCalendar({
             slot={slot}
             visibleRooms={visibleRooms}
             reservations={reservations}
+            roomBlocks={roomBlocks}
             onEdit={onEdit}
+            onEditBlock={onEditBlock}
             dragSelection={dragSelection}
             onBeginSelection={beginSelection}
             onUpdateSelection={updateSelection}
@@ -627,7 +947,9 @@ function DailyResourceRow({
   slot,
   visibleRooms,
   reservations,
+  roomBlocks,
   onEdit,
+  onEditBlock,
   dragSelection,
   onBeginSelection,
   onUpdateSelection,
@@ -637,7 +959,9 @@ function DailyResourceRow({
   slot: { value: string; label: string; isBookable: boolean }
   visibleRooms: Room[]
   reservations: Reservation[]
+  roomBlocks: RoomBlock[]
   onEdit: (reservation: Reservation) => void
+  onEditBlock: (block: RoomBlock) => void
   dragSelection: { roomId: string; startTime: string; endTime: string } | null
   onBeginSelection: (roomId: string, startTime: string) => void
   onUpdateSelection: (roomId: string, endTime: string) => void
@@ -652,6 +976,9 @@ function DailyResourceRow({
             reservation.date === date &&
             reservation.roomId === room.id &&
             reservation.startTime === slot.value,
+        )
+        const cellBlocks = roomBlocks.filter(
+          (block) => block.roomId === room.id && block.startTime === slot.value,
         )
         const selectionRange =
           dragSelection && dragSelection.roomId === room.id
@@ -674,6 +1001,9 @@ function DailyResourceRow({
             {cellReservations.map((reservation) => (
               <ReservationBlock key={reservation.id} reservation={reservation} onEdit={onEdit} />
             ))}
+            {cellBlocks.map((block) => (
+              <RoomBlockBlock key={block.id} block={block} room={room} onEdit={onEditBlock} />
+            ))}
             {slot.isBookable ? (
               <button
                 type="button"
@@ -688,6 +1018,33 @@ function DailyResourceRow({
         )
       })}
     </>
+  )
+}
+
+function RoomBlockBlock({
+  block,
+  room,
+  onEdit,
+}: {
+  block: RoomBlock
+  room: Room
+  onEdit: (block: RoomBlock) => void
+}) {
+  const span = getDurationSlotSpan(block.startTime, block.endTime)
+
+  return (
+    <button
+      type="button"
+      className="daily-room-block"
+      style={{ '--block-span': span } as CSSProperties}
+      onClick={() => onEdit(block)}
+      aria-label={`Blocked ${room.name} ${formatCompactTime(block.startTime)} - ${formatCompactTime(block.endTime)}`}
+    >
+      <strong>
+        Blocked {room.name} {formatCompactTime(block.startTime)} - {formatCompactTime(block.endTime)}
+      </strong>
+      <span>Blocked indefinitely</span>
+    </button>
   )
 }
 
@@ -954,6 +1311,47 @@ function emptyFormData(roomId: string, date: string, startTime: string, endTime?
   }
 }
 
+function emptyBlockFormData(roomId: string, startTime: string, endTime: string): RoomBlockFormData {
+  return {
+    roomId,
+    startTime,
+    endTime,
+    notes: '',
+  }
+}
+
+function getBatchDates(primaryDate: string, additionalDates: string[]): {
+  dates: string[]
+  invalid: string[]
+} {
+  const rawDates = [primaryDate, ...additionalDates]
+    .map((date) => date.trim())
+    .filter(Boolean)
+  const invalid = rawDates.filter((date) => !isDateInputValue(date))
+  const dates = Array.from(new Set(rawDates.filter((date) => isDateInputValue(date))))
+
+  return { dates, invalid }
+}
+
+function isDateInputValue(date: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return false
+  }
+
+  return addDays(date, 0) === date
+}
+
+function getBatchCreateMessage(createdCount: number, skippedDates: string[]): string {
+  const createdLabel = createdCount === 1 ? 'booking' : 'bookings'
+
+  if (skippedDates.length === 0) {
+    return `Created ${createdCount} ${createdLabel}.`
+  }
+
+  const skippedLabel = skippedDates.length === 1 ? 'date' : 'dates'
+  return `Created ${createdCount} ${createdLabel}. Skipped ${skippedDates.length} occupied ${skippedLabel}: ${skippedDates.join(', ')}.`
+}
+
 function getEndTimeLabel(startTime: string): string {
   return addMinutes(startTime, 60)
 }
@@ -1044,6 +1442,10 @@ function isSlotInSelection(
   const slotMinutes = timeToMinutes(slotTime)
 
   return slotMinutes >= timeToMinutes(selection.startTime) && slotMinutes < timeToMinutes(selection.endTime)
+}
+
+function getDurationSlotSpan(startTime: string, endTime: string): number {
+  return Math.max(1, Math.ceil((timeToMinutes(endTime) - timeToMinutes(startTime)) / 30))
 }
 
 function addMinutes(time: string, minutesToAdd: number): string {
