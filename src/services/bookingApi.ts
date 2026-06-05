@@ -75,6 +75,25 @@ export async function createPublicReservation(
   return mapApiReservation(response.data)
 }
 
+export async function createAdminReservation(
+  reservation: ReservationFormData,
+): Promise<Reservation> {
+  const response = await postJson<{ data: ApiReservation }>('/admin/reservations', {
+    room_id: reservation.roomId,
+    date: reservation.date,
+    start_time: reservation.startTime,
+    end_time: reservation.endTime,
+    first_name: reservation.firstName,
+    last_name: reservation.lastName,
+    email: reservation.email,
+    phone: reservation.phone,
+    status: reservation.status,
+    notes: reservation.notes,
+  })
+
+  return mapApiReservation(response.data)
+}
+
 export function mapApiReservation(reservation: ApiReservation): Reservation {
   return {
     id: String(reservation.id),

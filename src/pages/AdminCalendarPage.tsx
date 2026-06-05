@@ -21,7 +21,6 @@ import { rooms } from '../data/rooms'
 import {
   RESERVATION_STATUSES,
   createRoomBlock,
-  createReservation,
   filterReservations,
   findConflictingReservation,
   findConflictingRoomBlock,
@@ -48,6 +47,7 @@ import {
   upsertRoomBlock,
   upsertReservation,
 } from '../services/reservationStore'
+import { createAdminReservation } from '../services/bookingApi'
 
 const today = getToday()
 const calendarViews: CalendarView[] = ['week', 'day', 'month']
@@ -207,7 +207,7 @@ export function AdminCalendarPage() {
     setAdditionalDates((current) => current.filter((item) => item !== date))
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (timeToMinutes(formData.endTime ?? getEndTimeLabel(formData.startTime)) <= timeToMinutes(formData.startTime)) {
       setMessage('Ora de final trebuie sa fie dupa ora de start.')
       return
@@ -243,7 +243,7 @@ export function AdminCalendarPage() {
       const skippedDates: string[] = []
       const createdReservations: Reservation[] = []
 
-      parsedDates.dates.forEach((date) => {
+      for (const date of parsedDates.dates) {
         const nextFormData = { ...formData, date }
         const reservationConflict = findConflictingReservation(nextReservations, nextFormData)
         const blockConflict = findConflictingRoomBlock(roomBlocks, {
@@ -254,13 +254,17 @@ export function AdminCalendarPage() {
 
         if (reservationConflict || blockConflict) {
           skippedDates.push(date)
-          return
+          continue
         }
 
-        const reservation = createReservation(nextFormData)
-        nextReservations = upsertReservation(reservation)
-        createdReservations.push(reservation)
-      })
+        try {
+          const reservation = await createAdminReservation(nextFormData)
+          nextReservations = upsertReservation(reservation)
+          createdReservations.push(reservation)
+        } catch {
+          skippedDates.push(date)
+        }
+      }
 
       setReservations(nextReservations)
       setModal(null)
@@ -273,7 +277,7 @@ export function AdminCalendarPage() {
     const reservation =
       modal?.mode === 'edit'
         ? updateReservation(modal.reservation, formData)
-        : createReservation(formData)
+        : await createAdminReservation(formData)
     const nextReservations = upsertReservation(reservation)
 
     setReservations(nextReservations)

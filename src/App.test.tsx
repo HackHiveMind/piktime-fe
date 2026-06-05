@@ -301,7 +301,8 @@ describe('app routes', () => {
     expect(screen.queryByText(/Blocked indefinitely/i)).not.toBeInTheDocument()
   })
 
-  it('lets admin create bookings on multiple dates and skips occupied dates', () => {
+  it('lets admin create bookings on multiple dates and skips occupied dates', async () => {
+    const fetchMock = mockAdminReservationApi()
     saveReservations([
       reservation({
         id: 'existing-conflict',
@@ -338,8 +339,11 @@ describe('app routes', () => {
     fireEvent.change(screen.getByLabelText(/telefon/i), { target: { value: '060111222' } })
     fireEvent.click(screen.getByRole('button', { name: /create booking/i }))
 
-    expect(screen.getByText(/Created 2 bookings/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText(/Created 2 bookings/i)).toBeInTheDocument()
+    })
     expect(screen.getByText(/Skipped 1 occupied date/i)).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(getReservations().filter((item) => item.email === 'ion@example.com')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ date: '2026-06-02', startTime: '13:00', endTime: '15:00' }),
@@ -349,7 +353,8 @@ describe('app routes', () => {
     expect(getReservations().filter((item) => item.email === 'ion@example.com')).toHaveLength(2)
   })
 
-  it('copies an existing admin booking into new bookings on multiple dates', () => {
+  it('copies an existing admin booking into new bookings on multiple dates', async () => {
+    const fetchMock = mockAdminReservationApi()
     saveReservations([
       reservation({
         id: 'copy-source',
@@ -378,7 +383,10 @@ describe('app routes', () => {
     fireEvent.click(screen.getByRole('button', { name: /add date/i }))
     fireEvent.click(screen.getByRole('button', { name: /create booking/i }))
 
-    expect(screen.getByText(/Created 2 bookings/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText(/Created 2 bookings/i)).toBeInTheDocument()
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(getReservations().filter((item) => item.email === 'ana@example.com')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ date: '2026-06-08', roomId: 'imeet', startTime: '11:00' }),
@@ -425,4 +433,35 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     json: () => Promise.resolve(body),
   } as Response
+}
+
+function mockAdminReservationApi() {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/api/admin/reservations') && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body))
+
+      return jsonResponse({
+        data: {
+          id: `${body.date}-${body.start_time}`,
+          room_id: body.room_id,
+          date: body.date,
+          start_time: body.start_time,
+          end_time: body.end_time,
+          first_name: body.first_name,
+          last_name: body.last_name,
+          email: body.email,
+          phone: body.phone,
+          status: body.status,
+          notes: body.notes,
+          created_at: '2026-06-05T12:00:00.000000Z',
+        },
+      }, 201)
+    }
+
+    return jsonResponse({ message: 'Unexpected API request' }, 404)
+  })
+
+  vi.stubGlobal('fetch', fetchMock)
+
+  return fetchMock
 }
