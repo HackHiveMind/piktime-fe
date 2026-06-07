@@ -1,39 +1,97 @@
 import { CalendarCheck, CheckCircle2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ReservationForm } from '../components/ReservationForm'
 import { RoomCard } from '../components/RoomCard'
 import { SlotPicker } from '../components/SlotPicker'
-import { rooms } from '../data/rooms'
+import { rooms as fallbackRooms } from '../data/rooms'
 import {
-  createReservation,
   findConflictingReservation,
   findConflictingRoomBlock,
   getTimeSlots,
 } from '../domain/booking'
-import type { Reservation, ReservationFormData, RoomBlock, TimeSlot } from '../domain/types'
-import { getReservations, getRoomBlocks, upsertReservation } from '../services/reservationStore'
+import type { Reservation, ReservationFormData, Room, RoomBlock, TimeSlot } from '../domain/types'
+import {
+  createPublicReservation,
+  fetchRoomAvailability,
+  fetchRooms,
+  type AvailabilitySlot,
+} from '../services/bookingApi'
+import { getRoomBlocks } from '../services/reservationStore'
 
 const today = new Date().toISOString().slice(0, 10)
 
 export function UserBookingPage() {
   const [date, setDate] = useState(today)
-  const [selectedRoomId, setSelectedRoomId] = useState(rooms[0].id)
+  const [rooms, setRooms] = useState<Room[]>(fallbackRooms)
+  const [selectedRoomId, setSelectedRoomId] = useState(fallbackRooms[0].id)
   const [selectedSlot, setSelectedSlot] = useState('')
-  const [reservations, setReservations] = useState<Reservation[]>(() => getReservations())
+  const [reservations, setReservations] = useState<Reservation[]>([])
+  const [availability, setAvailability] = useState<Record<string, AvailabilitySlot[]>>({})
   const [roomBlocks] = useState<RoomBlock[]>(() => getRoomBlocks())
   const [message, setMessage] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState<ReservationFormData>(() =>
-    emptyFormData(rooms[0].id, today, ''),
+    emptyFormData(fallbackRooms[0].id, today, ''),
   )
 
-  const selectedRoom = rooms.find((room) => room.id === selectedRoomId) ?? rooms[0]
+  const selectedRoom = rooms.find((room) => room.id === selectedRoomId) ?? rooms[0] ?? fallbackRooms[0]
+
+  useEffect(() => {
+    let isMounted = true
+
+    fetchRooms()
+      .then((apiRooms) => {
+        if (!isMounted) {
+          return
+        }
+
+        setRooms(apiRooms.map(mergeRoomMetadata))
+      })
+      .catch(() => {
+        if (isMounted) {
+          setMessage('Nu am putut incarca salile din API. Folosim lista locala temporar.')
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let isMounted = true
+
+    Promise.all(
+      rooms.map((room) =>
+        fetchRoomAvailability(room.id, date).then((roomAvailability) => [
+          room.id,
+          roomAvailability.slots,
+        ] as const),
+      ),
+    )
+      .then((entries) => {
+        if (isMounted) {
+          setAvailability(Object.fromEntries(entries))
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setMessage('Nu am putut incarca disponibilitatea din API.')
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [date, rooms])
 
   const availableCounts = useMemo(() => {
     return new Map(
       rooms.map((room) => [
         room.id,
-        getTimeSlots().filter(
+        (availability[room.id] ?? getTimeSlots().map((slot) => ({ ...slot, available: true }))).filter(
           (slot) =>
+            slot.available !== false &&
             !findConflictingReservation(reservations, {
               roomId: room.id,
               date,
@@ -48,7 +106,7 @@ export function UserBookingPage() {
         ).length,
       ]),
     )
-  }, [date, reservations, roomBlocks])
+  }, [availability, date, reservations, roomBlocks, rooms])
 
   const handleRoomSelect = (roomId: string) => {
     setSelectedRoomId(roomId)
@@ -76,16 +134,21 @@ export function UserBookingPage() {
     setFormData((current) => ({ ...current, date: nextDate, startTime: '', endTime: undefined }))
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.startTime) {
       setMessage('Alege un slot disponibil inainte de confirmare.')
+      return
+    }
+
+    const validationMessage = getReservationValidationMessage(formData)
+    if (validationMessage) {
+      setMessage(validationMessage)
       return
     }
 
     const conflict = findConflictingReservation(reservations, formData)
     if (conflict) {
       setMessage('Slotul a fost deja rezervat. Alege alta ora.')
-      setReservations(getReservations())
       return
     }
 
@@ -99,12 +162,25 @@ export function UserBookingPage() {
       return
     }
 
-    const reservation = createReservation(formData)
-    const nextReservations = upsertReservation(reservation)
-    setReservations(nextReservations)
-    setSelectedSlot('')
-    setFormData(emptyFormData(selectedRoomId, date, ''))
-    setMessage(`Rezervare confirmata pentru ${selectedRoom.name}, ora ${reservation.startTime}.`)
+    setIsSubmitting(true)
+
+    try {
+      const reservation = await createPublicReservation(formData)
+      setReservations((current) => [reservation, ...current])
+      setAvailability((current) => ({
+        ...current,
+        [reservation.roomId]: (current[reservation.roomId] ?? []).map((slot) =>
+          slot.start === reservation.startTime ? { ...slot, available: false } : slot,
+        ),
+      }))
+      setSelectedSlot('')
+      setFormData(emptyFormData(selectedRoomId, date, ''))
+      setMessage(`Rezervare confirmata pentru ${selectedRoom.name}, ora ${reservation.startTime}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Rezervarea nu a putut fi salvata.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -114,7 +190,7 @@ export function UserBookingPage() {
           <span className="eyebrow">Booking sali conferinta</span>
           <h1>Rezerva o sala</h1>
           <p>
-            Alege data, sala si un slot de 30 de minute intre 09:00 si 21:00. Nu ai nevoie
+            Alege data, sala si un slot de o ora intre 09:00 si 21:00. Nu ai nevoie
             de cont pentru prima versiune iHUB.
           </p>
         </div>
@@ -151,13 +227,14 @@ export function UserBookingPage() {
             date={date}
             reservations={reservations}
             roomBlocks={roomBlocks}
+            slots={availability[selectedRoomId]}
             selectedSlot={selectedSlot}
             onSelectSlot={handleSlotSelect}
           />
 
           <ReservationForm
             value={formData}
-            submitLabel="Confirma rezervarea"
+            submitLabel={isSubmitting ? 'Se salveaza...' : 'Confirma rezervarea'}
             onChange={setFormData}
             onSubmit={handleSubmit}
           />
@@ -172,6 +249,43 @@ export function UserBookingPage() {
       </section>
     </div>
   )
+}
+
+function getReservationValidationMessage(formData: ReservationFormData): string {
+  if (!formData.lastName.trim()) {
+    return 'Completeaza numele.'
+  }
+
+  if (!formData.firstName.trim()) {
+    return 'Completeaza prenumele.'
+  }
+
+  if (!formData.email.trim()) {
+    return 'Completeaza emailul.'
+  }
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
+    return 'Introdu un email valid.'
+  }
+
+  if (!formData.phone.trim()) {
+    return 'Completeaza numarul de telefon.'
+  }
+
+  return ''
+}
+
+function mergeRoomMetadata(room: Pick<Room, 'id' | 'name' | 'capacity'>): Room {
+  const localRoom = fallbackRooms.find((item) => item.id === room.id)
+
+  return {
+    id: room.id,
+    name: room.name,
+    capacity: room.capacity,
+    location: localRoom?.location ?? 'iHUB',
+    amenities: localRoom?.amenities ?? [],
+    accent: localRoom?.accent ?? '#74bd45',
+  }
 }
 
 function emptyFormData(roomId: string, date: string, startTime: string): ReservationFormData {

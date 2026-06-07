@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { getReservations, saveReservations, saveRoomBlocks } from './services/reservationStore'
 import type { Reservation, RoomBlock } from './domain/types'
@@ -15,6 +15,7 @@ describe('app routes', () => {
 
   afterEach(() => {
     cleanup()
+    vi.unstubAllGlobals()
   })
 
   it('renders the public booking interface', () => {
@@ -28,6 +29,101 @@ describe('app routes', () => {
     expect(screen.getAllByText('iMEET Room').length).toBeGreaterThan(0)
     expect(screen.getByRole('link', { name: /admin/i })).toHaveAttribute('href', '/admin')
     expect(screen.getByRole('button', { name: /09:30Liber/i })).toBeInTheDocument()
+  })
+
+  it('submits a public booking to the backend api', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/rooms')) {
+        return jsonResponse({
+          data: [{ id: 'imeet', name: 'iMEET Room', capacity: 8 }],
+        })
+      }
+
+      if (url.includes('/api/rooms/imeet/availability')) {
+        return jsonResponse({
+          data: {
+            room_id: 'imeet',
+            date: '2026-06-01',
+            slots: [{ start: '09:00', end: '10:00', label: '09:00 - 10:00', available: true }],
+          },
+        })
+      }
+
+      if (url.endsWith('/api/reservations') && init?.method === 'POST') {
+        return jsonResponse({
+          data: {
+            id: '42',
+            room_id: 'imeet',
+            date: new Date().toISOString().slice(0, 10),
+            start_time: '09:00',
+            end_time: '10:00',
+            first_name: 'Ana',
+            last_name: 'Popescu',
+            email: 'ana@example.com',
+            phone: '069123456',
+            status: 'confirmed',
+            notes: '',
+            created_at: '2026-06-05T12:00:00.000000Z',
+          },
+        }, 201)
+      }
+
+      return jsonResponse({ data: { slots: [] } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /09:00Liber/i }))
+    fireEvent.change(screen.getByLabelText(/^nume$/i), { target: { value: 'Popescu' } })
+    fireEvent.change(screen.getByLabelText(/prenume/i), { target: { value: 'Ana' } })
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'ana@example.com' } })
+    fireEvent.change(screen.getByLabelText(/telefon/i), { target: { value: '069123456' } })
+    fireEvent.click(screen.getByRole('button', { name: /confirma rezervarea/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/reservations',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    expect(screen.getByText(/Rezervare confirmata pentru iMEET Room/i)).toBeInTheDocument()
+  })
+
+  it('shows a visible public booking validation message before api submit', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/api/rooms')) {
+          return jsonResponse({
+            data: [{ id: 'imeet', name: 'iMEET Room', capacity: 8 }],
+          })
+        }
+
+        return jsonResponse({
+          data: {
+            room_id: 'imeet',
+            date: '2026-06-01',
+            slots: [{ start: '09:00', end: '10:00', label: '09:00 - 10:00', available: true }],
+          },
+        })
+      }),
+    )
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: /09:00Liber/i }))
+    fireEvent.click(screen.getByRole('button', { name: /confirma rezervarea/i }))
+
+    expect(screen.getByText(/Completeaza numele/i)).toBeInTheDocument()
   })
 
   it('marks user slots blocked by admin room blocks as unavailable', () => {
@@ -70,6 +166,56 @@ describe('app routes', () => {
     expect(screen.getByRole('heading', { name: /calendar admin/i })).toBeInTheDocument()
     expect(screen.getAllByText(/Ana Popescu/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/iMEET Room/).length).toBeGreaterThan(0)
+  })
+
+  it('loads admin reservations from the backend instead of only local storage', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'backend-reservation',
+              room_id: 'imeet',
+              date: '2026-06-01',
+              start_time: '09:00',
+              end_time: '10:00',
+              first_name: 'Maria',
+              last_name: 'Ionescu',
+              email: 'maria@example.com',
+              phone: '060111222',
+              status: 'confirmed',
+              notes: null,
+              created_at: '2026-06-05T12:00:00.000000Z',
+            },
+          ],
+        }),
+      ),
+    )
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(getReservations()).toEqual([
+        expect.objectContaining({
+          id: 'backend-reservation',
+          firstName: 'Maria',
+          lastName: 'Ionescu',
+        }),
+      ])
+    })
+    expect(screen.getAllByText(/Maria Ionescu/).length).toBeGreaterThan(0)
+    expect(getReservations()).toEqual([
+      expect.objectContaining({
+        id: 'backend-reservation',
+        firstName: 'Maria',
+        lastName: 'Ionescu',
+      }),
+    ])
   })
 
   it('renders Picktime-like admin controls for views, search, filters, and status', () => {
@@ -205,7 +351,8 @@ describe('app routes', () => {
     expect(screen.queryByText(/Blocked indefinitely/i)).not.toBeInTheDocument()
   })
 
-  it('lets admin create bookings on multiple dates and skips occupied dates', () => {
+  it('lets admin create bookings on multiple dates and skips occupied dates', async () => {
+    const fetchMock = mockAdminReservationApi()
     saveReservations([
       reservation({
         id: 'existing-conflict',
@@ -242,8 +389,14 @@ describe('app routes', () => {
     fireEvent.change(screen.getByLabelText(/telefon/i), { target: { value: '060111222' } })
     fireEvent.click(screen.getByRole('button', { name: /create booking/i }))
 
-    expect(screen.getByText(/Created 2 bookings/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText(/Created 2 bookings/i)).toBeInTheDocument()
+    })
     expect(screen.getByText(/Skipped 1 occupied date/i)).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/admin/reservations',
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(getReservations().filter((item) => item.email === 'ion@example.com')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ date: '2026-06-02', startTime: '13:00', endTime: '15:00' }),
@@ -253,7 +406,8 @@ describe('app routes', () => {
     expect(getReservations().filter((item) => item.email === 'ion@example.com')).toHaveLength(2)
   })
 
-  it('copies an existing admin booking into new bookings on multiple dates', () => {
+  it('copies an existing admin booking into new bookings on multiple dates', async () => {
+    const fetchMock = mockAdminReservationApi()
     saveReservations([
       reservation({
         id: 'copy-source',
@@ -282,7 +436,13 @@ describe('app routes', () => {
     fireEvent.click(screen.getByRole('button', { name: /add date/i }))
     fireEvent.click(screen.getByRole('button', { name: /create booking/i }))
 
-    expect(screen.getByText(/Created 2 bookings/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.getByText(/Created 2 bookings/i)).toBeInTheDocument()
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/admin/reservations',
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(getReservations().filter((item) => item.email === 'ana@example.com')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ date: '2026-06-08', roomId: 'imeet', startTime: '11:00' }),
@@ -321,4 +481,43 @@ function roomBlock(overrides: Partial<RoomBlock>): RoomBlock {
     createdAt: '2026-05-31T12:00:00.000Z',
     ...overrides,
   }
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve(body),
+  } as Response
+}
+
+function mockAdminReservationApi() {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/api/admin/reservations') && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body))
+
+      return jsonResponse({
+        data: {
+          id: `${body.date}-${body.start_time}`,
+          room_id: body.room_id,
+          date: body.date,
+          start_time: body.start_time,
+          end_time: body.end_time,
+          first_name: body.first_name,
+          last_name: body.last_name,
+          email: body.email,
+          phone: body.phone,
+          status: body.status,
+          notes: body.notes,
+          created_at: '2026-06-05T12:00:00.000000Z',
+        },
+      }, 201)
+    }
+
+    return jsonResponse({ message: 'Unexpected API request' }, 404)
+  })
+
+  vi.stubGlobal('fetch', fetchMock)
+
+  return fetchMock
 }

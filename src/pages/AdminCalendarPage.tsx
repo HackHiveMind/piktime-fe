@@ -15,13 +15,12 @@ import {
   Users,
 } from 'lucide-react'
 import type { CSSProperties } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ReservationForm } from '../components/ReservationForm'
 import { rooms } from '../data/rooms'
 import {
   RESERVATION_STATUSES,
   createRoomBlock,
-  createReservation,
   filterReservations,
   findConflictingReservation,
   findConflictingRoomBlock,
@@ -45,9 +44,11 @@ import {
   deleteReservation,
   getRoomBlocks,
   getReservations,
+  saveReservations,
   upsertRoomBlock,
   upsertReservation,
 } from '../services/reservationStore'
+import { createAdminReservation, fetchAdminReservations } from '../services/bookingApi'
 
 const today = getToday()
 const calendarViews: CalendarView[] = ['week', 'day', 'month']
@@ -98,6 +99,37 @@ export function AdminCalendarPage() {
   const [additionalDates, setAdditionalDates] = useState<string[]>([])
   const [additionalDateDraft, setAdditionalDateDraft] = useState('')
   const [message, setMessage] = useState('')
+  const hadLocalReservationsOnLoad = useRef(reservations.length > 0)
+
+  useEffect(() => {
+    let isActive = true
+
+    async function loadReservations() {
+      try {
+        const backendReservations = await fetchAdminReservations()
+
+        if (!isActive) {
+          return
+        }
+
+        saveReservations(backendReservations)
+        setReservations(backendReservations)
+        setAnchorDate((currentAnchorDate) =>
+          !hadLocalReservationsOnLoad.current && backendReservations[0]
+            ? backendReservations[0].date
+            : currentAnchorDate,
+        )
+      } catch {
+        // Keep the local cache visible when the API is temporarily unavailable.
+      }
+    }
+
+    loadReservations()
+
+    return () => {
+      isActive = false
+    }
+  }, [])
 
   const calendarDates = useMemo(
     () => getCalendarDates(anchorDate, calendarView),
@@ -207,7 +239,7 @@ export function AdminCalendarPage() {
     setAdditionalDates((current) => current.filter((item) => item !== date))
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (timeToMinutes(formData.endTime ?? getEndTimeLabel(formData.startTime)) <= timeToMinutes(formData.startTime)) {
       setMessage('Ora de final trebuie sa fie dupa ora de start.')
       return
@@ -243,7 +275,7 @@ export function AdminCalendarPage() {
       const skippedDates: string[] = []
       const createdReservations: Reservation[] = []
 
-      parsedDates.dates.forEach((date) => {
+      for (const date of parsedDates.dates) {
         const nextFormData = { ...formData, date }
         const reservationConflict = findConflictingReservation(nextReservations, nextFormData)
         const blockConflict = findConflictingRoomBlock(roomBlocks, {
@@ -254,13 +286,17 @@ export function AdminCalendarPage() {
 
         if (reservationConflict || blockConflict) {
           skippedDates.push(date)
-          return
+          continue
         }
 
-        const reservation = createReservation(nextFormData)
-        nextReservations = upsertReservation(reservation)
-        createdReservations.push(reservation)
-      })
+        try {
+          const reservation = await createAdminReservation(nextFormData)
+          nextReservations = upsertReservation(reservation)
+          createdReservations.push(reservation)
+        } catch {
+          skippedDates.push(date)
+        }
+      }
 
       setReservations(nextReservations)
       setModal(null)
@@ -273,7 +309,7 @@ export function AdminCalendarPage() {
     const reservation =
       modal?.mode === 'edit'
         ? updateReservation(modal.reservation, formData)
-        : createReservation(formData)
+        : await createAdminReservation(formData)
     const nextReservations = upsertReservation(reservation)
 
     setReservations(nextReservations)

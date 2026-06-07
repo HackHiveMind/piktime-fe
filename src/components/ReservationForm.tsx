@@ -22,6 +22,7 @@ export function ReservationForm({
   return (
     <form
       className="booking-form"
+      noValidate
       onSubmit={(event) => {
         event.preventDefault()
         onSubmit()
@@ -89,4 +90,3 @@ export function ReservationForm({
     </form>
   )
 }
-

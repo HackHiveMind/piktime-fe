@@ -9,7 +9,8 @@ Frontend React + TypeScript pentru rezervarea salilor de conferinta.
 - Formular public cu nume, prenume, email si telefon.
 - Interfata admin la `/admin` cu calendar saptamanal.
 - Adminul poate crea, edita si anula rezervari.
-- Datele sunt salvate momentan in `localStorage`.
+- Interfata publica foloseste API-ul Laravel pentru sali, disponibilitate si rezervari.
+- Interfata admin foloseste momentan `localStorage`.
 
 ## Comenzi
 
@@ -20,6 +21,18 @@ npm test
 npm run build
 ```
 
-## Urmatorul pas backend
+## Backend API
 
-Componentele folosesc `src/services/reservationStore.ts` ca layer de persistenta. Cand backend-ul Laravel este gata, acest serviciu poate fi inlocuit cu request-uri API fara sa rescriem fluxurile principale din UI.
+Porneste backend-ul Laravel, apoi seteaza API URL-ul pentru frontend:
+
+```bash
+cp .env.example .env
+```
+
+Valoarea implicita este:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000/api
+```
+
+Pentru un port diferit, schimba `VITE_API_BASE_URL` in `.env` inainte de `npm run dev`.
