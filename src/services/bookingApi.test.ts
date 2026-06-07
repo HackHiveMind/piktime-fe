@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createAdminReservation,
   createPublicReservation,
+  fetchAdminReservations,
   fetchRoomAvailability,
   fetchRooms,
   mapApiReservation,
@@ -152,6 +153,32 @@ describe('booking api', () => {
         }),
       }),
     )
+  })
+
+  it('loads admin reservations from the backend', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: [
+            apiReservation({
+              first_name: 'Maria',
+              last_name: 'Ionescu',
+              email: 'maria@example.com',
+            }),
+          ],
+        }),
+      ),
+    )
+
+    await expect(fetchAdminReservations()).resolves.toEqual([
+      expect.objectContaining({
+        firstName: 'Maria',
+        lastName: 'Ionescu',
+        email: 'maria@example.com',
+      }),
+    ])
+    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/admin/reservations')
   })
 
   it('maps api reservations into frontend reservations', () => {

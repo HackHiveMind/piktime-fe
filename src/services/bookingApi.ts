@@ -94,6 +94,12 @@ export async function createAdminReservation(
   return mapApiReservation(response.data)
 }
 
+export async function fetchAdminReservations(): Promise<Reservation[]> {
+  const response = await getJson<{ data: ApiReservation[] }>('/admin/reservations')
+
+  return response.data.map(mapApiReservation)
+}
+
 export function mapApiReservation(reservation: ApiReservation): Reservation {
   return {
     id: String(reservation.id),
