@@ -48,7 +48,11 @@ import {
   upsertRoomBlock,
   upsertReservation,
 } from '../services/reservationStore'
-import { createAdminReservation, fetchAdminReservations } from '../services/bookingApi'
+import {
+  createAdminReservation,
+  deleteAdminReservation,
+  fetchAdminReservations,
+} from '../services/bookingApi'
 
 const today = getToday()
 const calendarViews: CalendarView[] = ['week', 'day', 'month']
@@ -317,15 +321,21 @@ export function AdminCalendarPage() {
     setMessage(modal?.mode === 'edit' ? 'Booking updated.' : 'Booking created.')
   }
 
-  const handleDeleteReservation = () => {
+  const handleDeleteReservation = async () => {
     if (modal?.mode !== 'edit') {
       return
     }
 
-    const nextReservations = deleteReservation(modal.reservation.id)
-    setReservations(nextReservations)
-    setModal(null)
-    setMessage('Booking removed.')
+    try {
+      await deleteAdminReservation(modal.reservation.id)
+
+      const nextReservations = deleteReservation(modal.reservation.id)
+      setReservations(nextReservations)
+      setModal(null)
+      setMessage('Booking removed.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Booking could not be removed.')
+    }
   }
 
   const handleBlockSubmit = () => {

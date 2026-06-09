@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createAdminReservation,
+  deleteAdminReservation,
   createPublicReservation,
   fetchAdminReservations,
   fetchRoomAvailability,
@@ -181,6 +182,19 @@ describe('booking api', () => {
     expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/admin/reservations')
   })
 
+  it('deletes an admin reservation through the backend', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(noContentResponse()),
+    )
+
+    await expect(deleteAdminReservation('reservation-12')).resolves.toBeUndefined()
+    expect(fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/admin/reservations/reservation-12',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
   it('maps api reservations into frontend reservations', () => {
     expect(mapApiReservation(apiReservation())).toEqual({
       id: '12',
@@ -204,6 +218,14 @@ function jsonResponse(body: unknown, status = 200): Response {
     ok: status >= 200 && status < 300,
     status,
     json: () => Promise.resolve(body),
+  } as Response
+}
+
+function noContentResponse(): Response {
+  return {
+    ok: true,
+    status: 204,
+    json: () => Promise.resolve(null),
   } as Response
 }
 

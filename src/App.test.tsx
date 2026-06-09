@@ -218,6 +218,57 @@ describe('app routes', () => {
     ])
   })
 
+  it('deletes admin reservations from the backend before removing them locally', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/admin/reservations') && !init) {
+        return jsonResponse({
+          data: [
+            {
+              id: 'backend-reservation',
+              room_id: 'imeet',
+              date: '2026-06-01',
+              start_time: '09:00',
+              end_time: '10:00',
+              first_name: 'Maria',
+              last_name: 'Ionescu',
+              email: 'maria@example.com',
+              phone: '060111222',
+              status: 'confirmed',
+              notes: null,
+              created_at: '2026-06-05T12:00:00.000000Z',
+            },
+          ],
+        })
+      }
+
+      if (url.endsWith('/api/admin/reservations/backend-reservation') && init?.method === 'DELETE') {
+        return jsonResponse(null, 204)
+      }
+
+      return jsonResponse({ message: 'Unexpected API request' }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    await screen.findByRole('button', { name: /Maria Ionescu/i })
+    fireEvent.click(screen.getByRole('button', { name: /Maria Ionescu/i }))
+    fireEvent.click(screen.getByRole('button', { name: /delete booking/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/admin/reservations/backend-reservation',
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+    })
+    expect(getReservations()).toEqual([])
+    expect(screen.getByText(/Booking removed/i)).toBeInTheDocument()
+  })
+
   it('renders Picktime-like admin controls for views, search, filters, and status', () => {
     saveReservations([
       reservation({
