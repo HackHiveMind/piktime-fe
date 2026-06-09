@@ -269,6 +269,74 @@ describe('app routes', () => {
     expect(screen.getByText(/Booking removed/i)).toBeInTheDocument()
   })
 
+  it('lets the backend decide when a stale local admin reservation looks conflicting', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/admin/reservations') && !init) {
+        return jsonResponse({ message: 'Temporary load failure' }, 500)
+      }
+
+      if (url.endsWith('/api/admin/reservations') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body))
+
+        return jsonResponse({
+          data: {
+            id: 'backend-created',
+            room_id: body.room_id,
+            date: body.date,
+            start_time: body.start_time,
+            end_time: body.end_time,
+            first_name: body.first_name,
+            last_name: body.last_name,
+            email: body.email,
+            phone: body.phone,
+            status: body.status,
+            notes: body.notes,
+            created_at: '2026-06-05T12:00:00.000000Z',
+          },
+        }, 201)
+      }
+
+      return jsonResponse({ message: 'Unexpected API request' }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    saveReservations([
+      reservation({
+        id: 'stale-local',
+        roomId: 'imeet',
+        date: '2026-06-01',
+        startTime: '09:00',
+        endTime: '10:00',
+      }),
+    ])
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /new booking/i }))
+    fireEvent.change(screen.getByLabelText(/^date$/i), { target: { value: '2026-06-01' } })
+    fireEvent.change(screen.getByLabelText(/start time/i), { target: { value: '09:00' } })
+    fireEvent.change(screen.getByLabelText(/end time/i), { target: { value: '10:00' } })
+    fireEvent.change(screen.getByLabelText(/^nume$/i), { target: { value: 'Popescu' } })
+    fireEvent.change(screen.getByLabelText(/prenume/i), { target: { value: 'Ana' } })
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'ana@example.com' } })
+    fireEvent.change(screen.getByLabelText(/telefon/i), { target: { value: '060000000' } })
+    fireEvent.click(screen.getByRole('button', { name: /create booking/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/admin/reservations',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    expect(screen.queryByText(/Exista deja o rezervare/i)).not.toBeInTheDocument()
+    expect(getReservations()).toEqual([
+      expect.objectContaining({ id: 'backend-created', email: 'ana@example.com' }),
+    ])
+  })
+
   it('renders Picktime-like admin controls for views, search, filters, and status', () => {
     saveReservations([
       reservation({
@@ -447,7 +515,7 @@ describe('app routes', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/admin/reservations',
     )
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
     expect(getReservations().filter((item) => item.email === 'ion@example.com')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ date: '2026-06-02', startTime: '13:00', endTime: '15:00' }),
@@ -546,6 +614,10 @@ function mockAdminReservationApi() {
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.endsWith('/api/admin/reservations') && init?.method === 'POST') {
       const body = JSON.parse(String(init.body))
+
+      if (body.date === '2026-06-03') {
+        return jsonResponse({ message: 'Selected room is already reserved.' }, 422)
+      }
 
       return jsonResponse({
         data: {
