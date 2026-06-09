@@ -48,7 +48,11 @@ import {
   upsertRoomBlock,
   upsertReservation,
 } from '../services/reservationStore'
-import { createAdminReservation, fetchAdminReservations } from '../services/bookingApi'
+import {
+  createAdminReservation,
+  deleteAdminReservation,
+  fetchAdminReservations,
+} from '../services/bookingApi'
 
 const today = getToday()
 const calendarViews: CalendarView[] = ['week', 'day', 'month']
@@ -246,7 +250,10 @@ export function AdminCalendarPage() {
     }
 
     const ignoreId = modal?.mode === 'edit' ? modal.reservation.id : undefined
-    const conflict = findConflictingReservation(reservations, formData, ignoreId)
+    const conflict =
+      modal?.mode === 'edit'
+        ? findConflictingReservation(reservations, formData, ignoreId)
+        : undefined
 
     if (conflict && formData.status !== 'cancelled') {
       setMessage('Exista deja o rezervare pentru sala, data si ora selectata.')
@@ -277,21 +284,21 @@ export function AdminCalendarPage() {
 
       for (const date of parsedDates.dates) {
         const nextFormData = { ...formData, date }
-        const reservationConflict = findConflictingReservation(nextReservations, nextFormData)
         const blockConflict = findConflictingRoomBlock(roomBlocks, {
           roomId: nextFormData.roomId,
           startTime: nextFormData.startTime,
           endTime: nextFormData.endTime ?? getEndTimeLabel(nextFormData.startTime),
         })
 
-        if (reservationConflict || blockConflict) {
+        if (blockConflict) {
           skippedDates.push(date)
           continue
         }
 
         try {
           const reservation = await createAdminReservation(nextFormData)
-          nextReservations = upsertReservation(reservation)
+          nextReservations = replaceReservationInMemory(nextReservations, reservation)
+          saveReservations(nextReservations)
           createdReservations.push(reservation)
         } catch {
           skippedDates.push(date)
@@ -317,15 +324,21 @@ export function AdminCalendarPage() {
     setMessage(modal?.mode === 'edit' ? 'Booking updated.' : 'Booking created.')
   }
 
-  const handleDeleteReservation = () => {
+  const handleDeleteReservation = async () => {
     if (modal?.mode !== 'edit') {
       return
     }
 
-    const nextReservations = deleteReservation(modal.reservation.id)
-    setReservations(nextReservations)
-    setModal(null)
-    setMessage('Booking removed.')
+    try {
+      await deleteAdminReservation(modal.reservation.id)
+
+      const nextReservations = deleteReservation(modal.reservation.id)
+      setReservations(nextReservations)
+      setModal(null)
+      setMessage('Booking removed.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Booking could not be removed.')
+    }
   }
 
   const handleBlockSubmit = () => {
@@ -1386,6 +1399,31 @@ function getBatchCreateMessage(createdCount: number, skippedDates: string[]): st
 
   const skippedLabel = skippedDates.length === 1 ? 'date' : 'dates'
   return `Created ${createdCount} ${createdLabel}. Skipped ${skippedDates.length} occupied ${skippedLabel}: ${skippedDates.join(', ')}.`
+}
+
+function replaceReservationInMemory(
+  reservations: Reservation[],
+  reservation: Reservation,
+): Reservation[] {
+  const reservationStart = timeToMinutes(reservation.startTime)
+  const reservationEnd = timeToMinutes(reservation.endTime)
+
+  const filteredReservations = reservations.filter((item) => {
+    if (item.id === reservation.id) {
+      return false
+    }
+
+    if (item.roomId !== reservation.roomId || item.date !== reservation.date) {
+      return true
+    }
+
+    const itemStart = timeToMinutes(item.startTime)
+    const itemEnd = timeToMinutes(item.endTime)
+
+    return !(itemStart < reservationEnd && reservationStart < itemEnd)
+  })
+
+  return [reservation, ...filteredReservations]
 }
 
 function getEndTimeLabel(startTime: string): string {
