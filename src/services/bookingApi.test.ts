@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createAdminReservation,
+  deleteAdminReservation,
   createPublicReservation,
+  fetchAdminReservations,
   fetchRoomAvailability,
   fetchRooms,
   mapApiReservation,
@@ -154,6 +156,45 @@ describe('booking api', () => {
     )
   })
 
+  it('loads admin reservations from the backend', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: [
+            apiReservation({
+              first_name: 'Maria',
+              last_name: 'Ionescu',
+              email: 'maria@example.com',
+            }),
+          ],
+        }),
+      ),
+    )
+
+    await expect(fetchAdminReservations()).resolves.toEqual([
+      expect.objectContaining({
+        firstName: 'Maria',
+        lastName: 'Ionescu',
+        email: 'maria@example.com',
+      }),
+    ])
+    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/admin/reservations')
+  })
+
+  it('deletes an admin reservation through the backend', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(noContentResponse()),
+    )
+
+    await expect(deleteAdminReservation('reservation-12')).resolves.toBeUndefined()
+    expect(fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/admin/reservations/reservation-12',
+      expect.objectContaining({ method: 'DELETE' }),
+    )
+  })
+
   it('maps api reservations into frontend reservations', () => {
     expect(mapApiReservation(apiReservation())).toEqual({
       id: '12',
@@ -177,6 +218,14 @@ function jsonResponse(body: unknown, status = 200): Response {
     ok: status >= 200 && status < 300,
     status,
     json: () => Promise.resolve(body),
+  } as Response
+}
+
+function noContentResponse(): Response {
+  return {
+    ok: true,
+    status: 204,
+    json: () => Promise.resolve(null),
   } as Response
 }
 

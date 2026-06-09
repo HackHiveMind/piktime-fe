@@ -168,6 +168,107 @@ describe('app routes', () => {
     expect(screen.getAllByText(/iMEET Room/).length).toBeGreaterThan(0)
   })
 
+  it('loads admin reservations from the backend instead of only local storage', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'backend-reservation',
+              room_id: 'imeet',
+              date: '2026-06-01',
+              start_time: '09:00',
+              end_time: '10:00',
+              first_name: 'Maria',
+              last_name: 'Ionescu',
+              email: 'maria@example.com',
+              phone: '060111222',
+              status: 'confirmed',
+              notes: null,
+              created_at: '2026-06-05T12:00:00.000000Z',
+            },
+          ],
+        }),
+      ),
+    )
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(getReservations()).toEqual([
+        expect.objectContaining({
+          id: 'backend-reservation',
+          firstName: 'Maria',
+          lastName: 'Ionescu',
+        }),
+      ])
+    })
+    expect(screen.getAllByText(/Maria Ionescu/).length).toBeGreaterThan(0)
+    expect(getReservations()).toEqual([
+      expect.objectContaining({
+        id: 'backend-reservation',
+        firstName: 'Maria',
+        lastName: 'Ionescu',
+      }),
+    ])
+  })
+
+  it('deletes admin reservations from the backend before removing them locally', async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/admin/reservations') && !init) {
+        return jsonResponse({
+          data: [
+            {
+              id: 'backend-reservation',
+              room_id: 'imeet',
+              date: '2026-06-01',
+              start_time: '09:00',
+              end_time: '10:00',
+              first_name: 'Maria',
+              last_name: 'Ionescu',
+              email: 'maria@example.com',
+              phone: '060111222',
+              status: 'confirmed',
+              notes: null,
+              created_at: '2026-06-05T12:00:00.000000Z',
+            },
+          ],
+        })
+      }
+
+      if (url.endsWith('/api/admin/reservations/backend-reservation') && init?.method === 'DELETE') {
+        return jsonResponse(null, 204)
+      }
+
+      return jsonResponse({ message: 'Unexpected API request' }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    await screen.findByRole('button', { name: /Maria Ionescu/i })
+    fireEvent.click(screen.getByRole('button', { name: /Maria Ionescu/i }))
+    fireEvent.click(screen.getByRole('button', { name: /delete booking/i }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:8000/api/admin/reservations/backend-reservation',
+        expect.objectContaining({ method: 'DELETE' }),
+      )
+    })
+    expect(getReservations()).toEqual([])
+    expect(screen.getByText(/Booking removed/i)).toBeInTheDocument()
+  })
+
   it('renders Picktime-like admin controls for views, search, filters, and status', () => {
     saveReservations([
       reservation({
@@ -343,7 +444,10 @@ describe('app routes', () => {
       expect(screen.getByText(/Created 2 bookings/i)).toBeInTheDocument()
     })
     expect(screen.getByText(/Skipped 1 occupied date/i)).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/admin/reservations',
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(getReservations().filter((item) => item.email === 'ion@example.com')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ date: '2026-06-02', startTime: '13:00', endTime: '15:00' }),
@@ -386,7 +490,10 @@ describe('app routes', () => {
     await waitFor(() => {
       expect(screen.getByText(/Created 2 bookings/i)).toBeInTheDocument()
     })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/admin/reservations',
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(getReservations().filter((item) => item.email === 'ana@example.com')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ date: '2026-06-08', roomId: 'imeet', startTime: '11:00' }),

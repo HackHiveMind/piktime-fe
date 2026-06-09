@@ -15,7 +15,7 @@ import {
   Users,
 } from 'lucide-react'
 import type { CSSProperties } from 'react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ReservationForm } from '../components/ReservationForm'
 import { rooms } from '../data/rooms'
 import {
@@ -44,10 +44,15 @@ import {
   deleteReservation,
   getRoomBlocks,
   getReservations,
+  saveReservations,
   upsertRoomBlock,
   upsertReservation,
 } from '../services/reservationStore'
-import { createAdminReservation } from '../services/bookingApi'
+import {
+  createAdminReservation,
+  deleteAdminReservation,
+  fetchAdminReservations,
+} from '../services/bookingApi'
 
 const today = getToday()
 const calendarViews: CalendarView[] = ['week', 'day', 'month']
@@ -98,6 +103,37 @@ export function AdminCalendarPage() {
   const [additionalDates, setAdditionalDates] = useState<string[]>([])
   const [additionalDateDraft, setAdditionalDateDraft] = useState('')
   const [message, setMessage] = useState('')
+  const hadLocalReservationsOnLoad = useRef(reservations.length > 0)
+
+  useEffect(() => {
+    let isActive = true
+
+    async function loadReservations() {
+      try {
+        const backendReservations = await fetchAdminReservations()
+
+        if (!isActive) {
+          return
+        }
+
+        saveReservations(backendReservations)
+        setReservations(backendReservations)
+        setAnchorDate((currentAnchorDate) =>
+          !hadLocalReservationsOnLoad.current && backendReservations[0]
+            ? backendReservations[0].date
+            : currentAnchorDate,
+        )
+      } catch {
+        // Keep the local cache visible when the API is temporarily unavailable.
+      }
+    }
+
+    loadReservations()
+
+    return () => {
+      isActive = false
+    }
+  }, [])
 
   const calendarDates = useMemo(
     () => getCalendarDates(anchorDate, calendarView),
@@ -285,15 +321,21 @@ export function AdminCalendarPage() {
     setMessage(modal?.mode === 'edit' ? 'Booking updated.' : 'Booking created.')
   }
 
-  const handleDeleteReservation = () => {
+  const handleDeleteReservation = async () => {
     if (modal?.mode !== 'edit') {
       return
     }
 
-    const nextReservations = deleteReservation(modal.reservation.id)
-    setReservations(nextReservations)
-    setModal(null)
-    setMessage('Booking removed.')
+    try {
+      await deleteAdminReservation(modal.reservation.id)
+
+      const nextReservations = deleteReservation(modal.reservation.id)
+      setReservations(nextReservations)
+      setModal(null)
+      setMessage('Booking removed.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Booking could not be removed.')
+    }
   }
 
   const handleBlockSubmit = () => {

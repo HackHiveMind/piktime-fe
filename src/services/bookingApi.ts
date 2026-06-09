@@ -94,6 +94,22 @@ export async function createAdminReservation(
   return mapApiReservation(response.data)
 }
 
+export async function fetchAdminReservations(): Promise<Reservation[]> {
+  const response = await getJson<{ data: ApiReservation[] }>('/admin/reservations')
+
+  return response.data.map(mapApiReservation)
+}
+
+export async function deleteAdminReservation(reservationId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/admin/reservations/${reservationId}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response))
+  }
+}
+
 export function mapApiReservation(reservation: ApiReservation): Reservation {
   return {
     id: String(reservation.id),
@@ -135,4 +151,14 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   }
 
   return data
+}
+
+async function getErrorMessage(response: Response): Promise<string> {
+  try {
+    const data = await response.json()
+
+    return data.message ?? 'API request failed.'
+  } catch {
+    return 'API request failed.'
+  }
 }
