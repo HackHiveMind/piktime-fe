@@ -9,6 +9,8 @@ import { getReservations, saveReservations, saveRoomBlocks } from './services/re
 import type { Reservation, RoomBlock } from './domain/types'
 
 describe('app routes', () => {
+  const currentDate = new Date().toISOString().slice(0, 10)
+
   beforeEach(() => {
     localStorage.clear()
   })
@@ -152,7 +154,7 @@ describe('app routes', () => {
         firstName: 'Ana',
         lastName: 'Popescu',
         roomId: 'imeet',
-        date: '2026-06-01',
+        date: currentDate,
         startTime: '09:00',
       }),
     ])
@@ -177,7 +179,7 @@ describe('app routes', () => {
             {
               id: 'backend-reservation',
               room_id: 'imeet',
-              date: '2026-06-01',
+              date: currentDate,
               start_time: '09:00',
               end_time: '10:00',
               first_name: 'Maria',
@@ -218,6 +220,47 @@ describe('app routes', () => {
     ])
   })
 
+  it('keeps the admin calendar focused on today after loading older backend reservations', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'old-backend-reservation',
+              room_id: 'imeet',
+              date: '2026-06-01',
+              start_time: '09:00',
+              end_time: '10:00',
+              first_name: 'Maria',
+              last_name: 'Ionescu',
+              email: 'maria@example.com',
+              phone: '060111222',
+              status: 'confirmed',
+              notes: null,
+              created_at: '2026-06-05T12:00:00.000000Z',
+            },
+          ],
+        }),
+      ),
+    )
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(getReservations()).toEqual([
+        expect.objectContaining({
+          id: 'old-backend-reservation',
+        }),
+      ])
+    })
+    expect(screen.getByLabelText(/calendar date/i)).toHaveValue(currentDate)
+  })
+
   it('deletes admin reservations from the backend before removing them locally', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/api/admin/reservations') && !init) {
@@ -226,7 +269,7 @@ describe('app routes', () => {
             {
               id: 'backend-reservation',
               room_id: 'imeet',
-              date: '2026-06-01',
+              date: currentDate,
               start_time: '09:00',
               end_time: '10:00',
               first_name: 'Maria',
@@ -343,7 +386,7 @@ describe('app routes', () => {
         firstName: 'Ana',
         lastName: 'Popescu',
         roomId: 'imeet',
-        date: '2026-06-01',
+        date: currentDate,
         startTime: '09:00',
         status: 'pending',
       }),
@@ -370,7 +413,7 @@ describe('app routes', () => {
         firstName: 'Camelia',
         lastName: '',
         roomId: 'imeet',
-        date: '2026-06-01',
+        date: currentDate,
         startTime: '11:00',
       }),
     ])
@@ -394,7 +437,7 @@ describe('app routes', () => {
       reservation({
         id: 'anchor',
         roomId: 'loft',
-        date: '2026-06-01',
+        date: currentDate,
         startTime: '09:00',
       }),
     ])
@@ -406,20 +449,20 @@ describe('app routes', () => {
     )
 
     fireEvent.mouseDown(
-      screen.getByLabelText('Select iMEET Room 2026-06-01 13:00'),
+      screen.getByLabelText(`Select iMEET Room ${currentDate} 13:00`),
     )
     fireEvent.mouseEnter(
-      screen.getByLabelText('Select iMEET Room 2026-06-01 15:00'),
+      screen.getByLabelText(`Select iMEET Room ${currentDate} 15:00`),
     )
 
     expect(screen.getByText('1pm - 3pm')).toBeInTheDocument()
 
     fireEvent.mouseUp(
-      screen.getByLabelText('Select iMEET Room 2026-06-01 15:00'),
+      screen.getByLabelText(`Select iMEET Room ${currentDate} 15:00`),
     )
 
     expect(screen.getByRole('heading', { name: /new booking/i })).toBeInTheDocument()
-    expect(screen.getByText(/2026-06-01, 13:00 - 15:00/i)).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(`${currentDate}, 13:00 - 15:00`, 'i'))).toBeInTheDocument()
   })
 
   it('opens a thirty-minute booking when only one daily grid square is selected', () => {
@@ -427,7 +470,7 @@ describe('app routes', () => {
       reservation({
         id: 'anchor',
         roomId: 'loft',
-        date: '2026-06-01',
+        date: currentDate,
         startTime: '09:00',
       }),
     ])
@@ -439,14 +482,14 @@ describe('app routes', () => {
     )
 
     fireEvent.mouseDown(
-      screen.getByLabelText('Select iMEET Room 2026-06-01 13:00'),
+      screen.getByLabelText(`Select iMEET Room ${currentDate} 13:00`),
     )
     fireEvent.mouseUp(
-      screen.getByLabelText('Select iMEET Room 2026-06-01 13:00'),
+      screen.getByLabelText(`Select iMEET Room ${currentDate} 13:00`),
     )
 
     expect(screen.getByRole('heading', { name: /new booking/i })).toBeInTheDocument()
-    expect(screen.getByText(/2026-06-01, 13:00 - 13:30/i)).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(`${currentDate}, 13:00 - 13:30`, 'i'))).toBeInTheDocument()
   })
 
   it('lets admin create and remove indefinite room blocks', () => {
@@ -534,7 +577,7 @@ describe('app routes', () => {
         lastName: 'Popescu',
         email: 'ana@example.com',
         roomId: 'imeet',
-        date: '2026-06-01',
+        date: currentDate,
         startTime: '11:00',
         endTime: '12:00',
       }),
