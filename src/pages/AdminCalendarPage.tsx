@@ -66,7 +66,7 @@ const calendarViewLabels: Record<CalendarView, string> = {
 type AdminSection = 'calendar' | 'bookings' | 'customers' | 'rooms' | 'reports'
 
 type ModalState =
-  | { mode: 'create'; date: string; startTime: string; roomId: string }
+  | { mode: 'create'; date: string; startTime: string; roomId: string; copySourceId?: string }
   | { mode: 'edit'; reservation: Reservation }
   | { mode: 'block-create' }
   | { mode: 'block-edit'; block: RoomBlock }
@@ -211,6 +211,7 @@ export function AdminCalendarPage() {
       date: reservation.date,
       startTime: reservation.startTime,
       roomId: reservation.roomId,
+      copySourceId: reservation.id,
     })
     setAdditionalDates([])
     setAdditionalDateDraft('')
@@ -285,6 +286,14 @@ export function AdminCalendarPage() {
         })
 
         if (blockConflict) {
+          skippedDates.push(date)
+          continue
+        }
+
+        const reservationConflict = modal.copySourceId
+          ? findConflictingReservation(reservations, nextFormData)
+          : undefined
+        if (reservationConflict && nextFormData.status !== 'cancelled') {
           skippedDates.push(date)
           continue
         }
