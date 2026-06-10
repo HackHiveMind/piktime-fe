@@ -7,7 +7,7 @@ import { rooms as fallbackRooms } from '../data/rooms'
 import {
   findConflictingReservation,
   findConflictingRoomBlock,
-  getTimeSlots,
+  getPublicBookingSlots,
 } from '../domain/booking'
 import type { Reservation, ReservationFormData, Room, RoomBlock, TimeSlot } from '../domain/types'
 import {
@@ -89,7 +89,7 @@ export function UserBookingPage() {
     return new Map(
       rooms.map((room) => [
         room.id,
-        (availability[room.id] ?? getTimeSlots().map((slot) => ({ ...slot, available: true }))).filter(
+        (availability[room.id] ?? getPublicBookingSlots().map((slot) => ({ ...slot, available: true }))).filter(
           (slot) =>
             slot.available !== false &&
             !findConflictingReservation(reservations, {

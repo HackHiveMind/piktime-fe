@@ -30,6 +30,7 @@ describe('app routes', () => {
     expect(screen.getByRole('heading', { name: /rezerva o sala/i })).toBeInTheDocument()
     expect(screen.getAllByText('iMEET Room').length).toBeGreaterThan(0)
     expect(screen.getByRole('link', { name: /admin/i })).toHaveAttribute('href', '/admin')
+    expect(screen.getByRole('button', { name: /09:00Liber/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /09:30Liber/i })).toBeInTheDocument()
   })
 
@@ -263,7 +264,7 @@ describe('app routes', () => {
 
   it('deletes admin reservations from the backend before removing them locally', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/api/admin/reservations') && !init) {
+      if (url.endsWith('/api/admin/reservations') && !init?.method) {
         return jsonResponse({
           data: [
             {
@@ -305,7 +306,10 @@ describe('app routes', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
         'http://127.0.0.1:8000/api/admin/reservations/backend-reservation',
-        expect.objectContaining({ method: 'DELETE' }),
+        expect.objectContaining({
+          method: 'DELETE',
+          headers: { Accept: 'application/json' },
+        }),
       )
     })
     expect(getReservations()).toEqual([])
@@ -314,7 +318,7 @@ describe('app routes', () => {
 
   it('lets the backend decide when a stale local admin reservation looks conflicting', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      if (url.endsWith('/api/admin/reservations') && !init) {
+      if (url.endsWith('/api/admin/reservations') && !init?.method) {
         return jsonResponse({ message: 'Temporary load failure' }, 500)
       }
 
@@ -557,6 +561,10 @@ describe('app routes', () => {
     expect(screen.getByText(/Skipped 1 occupied date/i)).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/admin/reservations',
+      expect.objectContaining({
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        method: 'POST',
+      }),
     )
     expect(fetchMock).toHaveBeenCalledTimes(4)
     expect(getReservations().filter((item) => item.email === 'ion@example.com')).toEqual(
@@ -603,6 +611,10 @@ describe('app routes', () => {
     })
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/admin/reservations',
+      expect.objectContaining({
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        method: 'POST',
+      }),
     )
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(getReservations().filter((item) => item.email === 'ana@example.com')).toEqual(

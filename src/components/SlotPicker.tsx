@@ -1,7 +1,7 @@
 import {
   findConflictingReservation,
   findConflictingRoomBlock,
-  getTimeSlots,
+  getPublicBookingSlots,
 } from '../domain/booking'
 import type { Reservation, RoomBlock, TimeSlot } from '../domain/types'
 import type { AvailabilitySlot } from '../services/bookingApi'
@@ -25,7 +25,7 @@ export function SlotPicker({
   selectedSlot,
   onSelectSlot,
 }: SlotPickerProps) {
-  const timeSlots = slots ?? getTimeSlots().map((slot) => ({ ...slot, available: true }))
+  const timeSlots = slots ?? getPublicBookingSlots().map((slot) => ({ ...slot, available: true }))
 
   return (
     <div className="slot-grid" aria-label="Sloturi disponibile">

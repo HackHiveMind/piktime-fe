@@ -28,7 +28,9 @@ describe('booking api', () => {
     await expect(fetchRooms()).resolves.toEqual([
       { id: 'imeet', name: 'iMEET Room', capacity: 8 },
     ])
-    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/rooms')
+    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/rooms', {
+      headers: { Accept: 'application/json' },
+    })
   })
 
   it('loads room availability from the backend', async () => {
@@ -52,6 +54,7 @@ describe('booking api', () => {
     })
     expect(fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/rooms/imeet/availability?date=2026-06-10',
+      { headers: { Accept: 'application/json' } },
     )
   })
 
@@ -88,7 +91,7 @@ describe('booking api', () => {
       'http://127.0.0.1:8000/api/reservations',
       expect.objectContaining({
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({
           room_id: 'imeet',
           date: '2026-06-10',
@@ -140,6 +143,7 @@ describe('booking api', () => {
       'http://127.0.0.1:8000/api/admin/reservations',
       expect.objectContaining({
         method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({
           room_id: 'imeet',
           date: '2026-06-10',
@@ -179,7 +183,9 @@ describe('booking api', () => {
         email: 'maria@example.com',
       }),
     ])
-    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/admin/reservations')
+    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/admin/reservations', {
+      headers: { Accept: 'application/json' },
+    })
   })
 
   it('deletes an admin reservation through the backend', async () => {
@@ -191,7 +197,10 @@ describe('booking api', () => {
     await expect(deleteAdminReservation('reservation-12')).resolves.toBeUndefined()
     expect(fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/admin/reservations/reservation-12',
-      expect.objectContaining({ method: 'DELETE' }),
+      expect.objectContaining({
+        method: 'DELETE',
+        headers: { Accept: 'application/json' },
+      }),
     )
   })
 
