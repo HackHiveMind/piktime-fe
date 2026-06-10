@@ -1,6 +1,11 @@
 import type { Reservation, ReservationFormData, ReservationStatus, TimeSlot } from '../domain/types'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api'
+const API_BASE_URL = normalizeApiBaseUrl(
+  import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api',
+)
+const JSON_HEADERS = {
+  Accept: 'application/json',
+}
 
 export type ApiRoom = {
   id: string
@@ -103,6 +108,7 @@ export async function fetchAdminReservations(): Promise<Reservation[]> {
 export async function deleteAdminReservation(reservationId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/admin/reservations/${reservationId}`, {
     method: 'DELETE',
+    headers: JSON_HEADERS,
   })
 
   if (!response.ok) {
@@ -128,7 +134,9 @@ export function mapApiReservation(reservation: ApiReservation): Reservation {
 }
 
 async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`)
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: JSON_HEADERS,
+  })
 
   return parseJsonResponse<T>(response)
 }
@@ -136,7 +144,7 @@ async function getJson<T>(path: string): Promise<T> {
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { ...JSON_HEADERS, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
 
@@ -161,4 +169,8 @@ async function getErrorMessage(response: Response): Promise<string> {
   } catch {
     return 'API request failed.'
   }
+}
+
+function normalizeApiBaseUrl(url: string): string {
+  return url.replace(/\/+$/, '')
 }

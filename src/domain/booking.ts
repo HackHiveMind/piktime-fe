@@ -37,6 +37,23 @@ export function getTimeSlots(): TimeSlot[] {
   })
 }
 
+export function getPublicBookingSlots(): TimeSlot[] {
+  const startMinutes = BOOKING_START_HOUR * 60
+  const lastStartMinutes = (BOOKING_END_HOUR - 1) * 60
+  const slotCount = ((lastStartMinutes - startMinutes) / 30) + 1
+
+  return Array.from({ length: slotCount }, (_, index) => {
+    const start = formatMinutes(startMinutes + index * 30)
+    const end = formatMinutes(startMinutes + index * 30 + 60)
+
+    return {
+      start,
+      end,
+      label: `${start} - ${end}`,
+    }
+  })
+}
+
 export function findConflictingReservation(
   reservations: Reservation[],
   candidate: Pick<ReservationFormData, 'roomId' | 'date' | 'startTime' | 'endTime'>,
