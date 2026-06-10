@@ -625,6 +625,56 @@ describe('app routes', () => {
     )
     expect(getReservations().filter((item) => item.email === 'ana@example.com')).toHaveLength(3)
   })
+
+  it('skips the original occupied date when copying an admin booking', async () => {
+    const fetchMock = mockAdminReservationApi()
+    saveReservations([
+      reservation({
+        id: 'copy-source',
+        firstName: 'Ana',
+        lastName: 'Popescu',
+        email: 'ana@example.com',
+        roomId: 'imeet',
+        date: currentDate,
+        startTime: '11:00',
+        endTime: '12:00',
+      }),
+    ])
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Ana Popescu/i }))
+    fireEvent.click(screen.getByRole('button', { name: /copy booking/i }))
+    fireEvent.change(screen.getByLabelText(/^additional date$/i), {
+      target: { value: '2026-06-09' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /add date/i }))
+    fireEvent.click(screen.getByRole('button', { name: /create booking/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Created 1 booking/i)).toBeInTheDocument()
+    })
+    expect(screen.getByText(/Skipped 1 occupied date/i)).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/admin/reservations',
+      expect.objectContaining({
+        body: expect.stringContaining('"date":"2026-06-09"'),
+        method: 'POST',
+      }),
+    )
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/admin/reservations',
+      expect.objectContaining({
+        body: expect.stringContaining(`"date":"${currentDate}"`),
+        method: 'POST',
+      }),
+    )
+  })
 })
 
 function reservation(overrides: Partial<Reservation>): Reservation {
