@@ -148,6 +148,7 @@ main {
 }
 
 .date-control,
+.room-select-control,
 .booking-form label,
 .form-grid label {
   display: grid;
@@ -175,12 +176,27 @@ select {
   align-items: start;
 }
 
-.room-list {
+.room-list,
+.room-select-panel {
   display: grid;
   gap: 12px;
 }
 
-.room-card {
+.room-select-panel {
+  align-content: start;
+}
+
+.room-select-control,
+.selected-room-summary {
+  padding: 18px;
+  background: #ffffff;
+  border: 1px solid var(--ihub-line);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(24, 33, 47, 0.06);
+}
+
+.room-card,
+.selected-room-summary {
   position: relative;
   display: grid;
   gap: 12px;
@@ -194,7 +210,8 @@ select {
   box-shadow: 0 12px 30px rgba(24, 33, 47, 0.06);
 }
 
-.room-card.selected {
+.room-card.selected,
+.selected-room-summary {
   border-color: var(--room-accent);
   box-shadow: 0 16px 36px rgba(116, 189, 69, 0.16);
 }
@@ -527,7 +544,80 @@ select {
 }
 
 .admin-sidebar-brand {
+  width: 100%;
   gap: 12px;
+  color: #ffffff;
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.business-switcher {
+  position: relative;
+}
+
+.business-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  color: #5b2a8d;
+  background: #ffffff;
+  border: 1px solid #ebe8ef;
+  border-radius: 999px;
+  font-weight: 900;
+}
+
+.business-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 8px;
+  z-index: 30;
+  display: grid;
+  gap: 8px;
+  width: min(360px, calc(100vw - 32px));
+  padding: 18px;
+  color: #242127;
+  background: #ffffff;
+  border: 1px solid #ebe8ef;
+  border-radius: 10px;
+  box-shadow: 0 18px 38px rgba(19, 16, 24, 0.18);
+}
+
+.business-menu-heading,
+.business-menu button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.business-menu > small {
+  margin: 10px 0 4px;
+  color: #8c8792;
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.business-menu button {
+  width: 100%;
+  padding: 12px;
+  color: #2f2b34;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.business-menu button.active {
+  color: #5b2a8d;
+  background: #f5eef8;
+}
+
+.business-add-button {
+  margin-top: 4px;
+  border: 1px solid #ebe8ef !important;
 }
 
 .admin-sidebar-brand img {
@@ -839,6 +929,15 @@ select {
   gap: 12px;
 }
 
+.room-admin-section {
+  display: grid;
+  gap: 14px;
+}
+
+.rooms-add-button {
+  width: fit-content;
+}
+
 .customer-card,
 .room-admin-card {
   display: grid;
@@ -858,6 +957,25 @@ select {
 .room-admin-card {
   position: relative;
   overflow: hidden;
+}
+
+.room-business-setting {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--ihub-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.room-business-setting select {
+  width: 100%;
+  padding: 9px 10px;
+  color: #18212f;
+  background: #ffffff;
+  border: 1px solid var(--ihub-line);
+  border-radius: 8px;
+  font: inherit;
 }
 
 .reports-panel {

@@ -1,12 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createAdminReservation,
+  createAdminRoom,
   deleteAdminReservation,
+  fetchAdminRooms,
   createPublicReservation,
   fetchAdminReservations,
   fetchRoomAvailability,
   fetchRooms,
   mapApiReservation,
+  updateAdminRoom,
 } from './bookingApi'
 import type { ReservationStatus } from '../domain/types'
 
@@ -26,11 +29,136 @@ describe('booking api', () => {
     )
 
     await expect(fetchRooms()).resolves.toEqual([
-      { id: 'imeet', name: 'iMEET Room', capacity: 8 },
+      {
+        id: 'imeet',
+        name: 'iMEET Room',
+        capacity: 8,
+        businessId: undefined,
+        location: '',
+        amenities: [],
+        accent: '#f7de05',
+      },
     ])
     expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/rooms', {
       headers: { Accept: 'application/json' },
     })
+  })
+
+  it('loads admin rooms with business metadata from the backend', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: [
+            {
+              id: 'imeet',
+              name: 'iMEET Room',
+              capacity: 8,
+              business_id: 'chisinau',
+              location: 'iHUB Chisinau',
+              amenities: ['TV'],
+              accent: '#74bd45',
+            },
+          ],
+        }),
+      ),
+    )
+
+    await expect(fetchAdminRooms()).resolves.toEqual([
+      {
+        id: 'imeet',
+        name: 'iMEET Room',
+        capacity: 8,
+        businessId: 'chisinau',
+        location: 'iHUB Chisinau',
+        amenities: ['TV'],
+        accent: '#74bd45',
+      },
+    ])
+    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/admin/rooms', {
+      headers: { Accept: 'application/json' },
+    })
+  })
+
+  it('creates an admin room through the backend', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            id: 'podcast-studio',
+            name: 'Podcast Studio',
+            capacity: 4,
+            business_id: 'yellow',
+            location: 'iHUB Yellow',
+            amenities: [],
+            accent: '#f7de05',
+          },
+        }, 201),
+      ),
+    )
+
+    await expect(
+      createAdminRoom({
+        id: 'podcast-studio',
+        name: 'Podcast Studio',
+        capacity: 4,
+        businessId: 'yellow',
+        location: 'iHUB Yellow',
+        amenities: [],
+        accent: '#f7de05',
+      }),
+    ).resolves.toMatchObject({ id: 'podcast-studio', businessId: 'yellow' })
+    expect(fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/admin/rooms',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Podcast Studio',
+          capacity: 4,
+          business_id: 'yellow',
+          location: 'iHUB Yellow',
+          amenities: [],
+          accent: '#f7de05',
+        }),
+      }),
+    )
+  })
+
+  it('updates an admin room through the backend', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: {
+            id: 'imeet',
+            name: 'iMEET Room',
+            capacity: 8,
+            business_id: 'yellow-conference',
+            location: 'iHUB Yellow Conference',
+            amenities: [],
+            accent: '#74bd45',
+          },
+        }),
+      ),
+    )
+
+    await expect(
+      updateAdminRoom({
+        id: 'imeet',
+        name: 'iMEET Room',
+        capacity: 8,
+        businessId: 'yellow-conference',
+        location: 'iHUB Yellow Conference',
+        amenities: [],
+        accent: '#74bd45',
+      }),
+    ).resolves.toMatchObject({ id: 'imeet', businessId: 'yellow-conference' })
+    expect(fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/admin/rooms/imeet',
+      expect.objectContaining({ method: 'PUT' }),
+    )
   })
 
   it('loads room availability from the backend', async () => {

@@ -20,6 +20,11 @@ describe('app routes', () => {
     vi.unstubAllGlobals()
   })
 
+  const switchToChisinau = () => {
+    fireEvent.click(screen.getByRole('button', { name: /current business/i }))
+    fireEvent.click(screen.getByRole('button', { name: /iHUB Chisinau/i }))
+  }
+
   it('renders the public booking interface', () => {
     render(
       <MemoryRouter initialEntries={['/']}>
@@ -32,6 +37,24 @@ describe('app routes', () => {
     expect(screen.getByRole('link', { name: /admin/i })).toHaveAttribute('href', '/admin')
     expect(screen.getByRole('button', { name: /09:00Liber/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /09:30Liber/i })).toBeInTheDocument()
+  })
+
+  it('shows conference rooms first in the public room select', () => {
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    const roomSelect = screen.getByRole('combobox', { name: /alege sala/i })
+    const roomOptions = Array.from(roomSelect.querySelectorAll('option')).map((option) => option.textContent)
+
+    expect(roomSelect).toHaveValue('green-conference')
+    expect(roomOptions.slice(0, 2)).toEqual(['Green Conference Room', 'Yellow Conference Room'])
+
+    fireEvent.change(roomSelect, { target: { value: 'loft' } })
+
+    expect(screen.getByRole('heading', { name: /loft room/i })).toBeInTheDocument()
   })
 
   it('submits a public booking to the backend api', async () => {
@@ -144,6 +167,8 @@ describe('app routes', () => {
       </MemoryRouter>,
     )
 
+    fireEvent.change(screen.getByRole('combobox', { name: /alege sala/i }), { target: { value: 'imeet' } })
+
     expect(screen.getByRole('button', { name: /13:00Blocat/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /14:30Blocat/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /15:00Liber/i })).not.toBeDisabled()
@@ -165,6 +190,7 @@ describe('app routes', () => {
         <App />
       </MemoryRouter>,
     )
+    switchToChisinau()
 
     expect(screen.getByRole('heading', { name: /calendar admin/i })).toBeInTheDocument()
     expect(screen.getAllByText(/Ana Popescu/).length).toBeGreaterThan(0)
@@ -201,6 +227,7 @@ describe('app routes', () => {
         <App />
       </MemoryRouter>,
     )
+    switchToChisinau()
 
     await waitFor(() => {
       expect(getReservations()).toEqual([
@@ -298,6 +325,7 @@ describe('app routes', () => {
         <App />
       </MemoryRouter>,
     )
+    switchToChisinau()
 
     await screen.findByRole('button', { name: /Maria Ionescu/i })
     fireEvent.click(screen.getByRole('button', { name: /Maria Ionescu/i }))
@@ -379,9 +407,10 @@ describe('app routes', () => {
       )
     })
     expect(screen.queryByText(/Exista deja o rezervare/i)).not.toBeInTheDocument()
-    expect(getReservations()).toEqual([
+    expect(getReservations()).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'backend-created', email: 'ana@example.com' }),
-    ])
+      expect.objectContaining({ id: 'stale-local', roomId: 'imeet' }),
+    ]))
   })
 
   it('renders Picktime-like admin controls for views, search, filters, and status', () => {
@@ -411,12 +440,119 @@ describe('app routes', () => {
     expect(screen.getAllByText(/pending/i).length).toBeGreaterThan(0)
   })
 
+  it('opens the business switcher and lets admin add a room resource', async () => {
+    vi.stubGlobal('fetch', mockAdminRoomsApi())
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /current business/i }))
+
+    expect(screen.getByRole('button', { name: /iHUB - WFP Conference/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /iHUB Chisinau/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^iHUB Yellow$/i })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /add room/i }))
+    fireEvent.change(screen.getByLabelText(/room name/i), {
+      target: { value: 'Podcast Studio' },
+    })
+    fireEvent.change(screen.getByLabelText(/capacity/i), {
+      target: { value: '4' },
+    })
+    fireEvent.change(screen.getByLabelText(/^business$/i), {
+      target: { value: 'chisinau' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^save room$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: /^resource$/i })).toHaveTextContent(/Podcast Studio/)
+    })
+    expect(screen.getByText(/Book Podcast Studio/i)).toBeInTheDocument()
+  })
+
+  it('lets admin assign rooms to each business from the rooms section', async () => {
+    vi.stubGlobal('fetch', mockAdminRoomsApi())
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /current business/i }))
+    fireEvent.click(screen.getByRole('button', { name: /iHUB Chisinau/i }))
+    fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+    fireEvent.change(screen.getByLabelText(/business for iMEET Room/i), {
+      target: { value: 'yellow-conference' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Room moved/i)).toBeInTheDocument()
+    })
+    expect(screen.queryByLabelText(/business for iMEET Room/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps room business assignments after the admin page reloads', async () => {
+    vi.stubGlobal('fetch', mockAdminRoomsApi())
+
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    switchToChisinau()
+    fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+    fireEvent.change(screen.getByLabelText(/business for iMEET Room/i), {
+      target: { value: 'yellow-conference' },
+    })
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/business for iMEET Room/i)).not.toBeInTheDocument()
+    })
+
+    unmount()
+    cleanup()
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /current business/i }))
+    fireEvent.click(screen.getByRole('button', { name: /iHUB Yellow Conference/i }))
+    fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+
+    expect(screen.getByLabelText(/business for iMEET Room/i)).toHaveValue('yellow-conference')
+  })
+
+  it('filters room resources when admin switches business', () => {
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText(/Book Yellow Conference Room/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Book iMEET Room/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /current business/i }))
+    fireEvent.click(screen.getByRole('button', { name: /iHUB Chisinau/i }))
+
+    expect(screen.queryByRole('button', { name: /iHUB - WFP Conference/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/Book iMEET Room/i)).toBeInTheDocument()
+    expect(screen.queryByText(/Book Yellow Conference Room/i)).not.toBeInTheDocument()
+  })
+
   it('renders the Picktime-style daily resource grid by default', () => {
     saveReservations([
       reservation({
         firstName: 'Camelia',
         lastName: '',
-        roomId: 'imeet',
+        roomId: 'yellow-conference',
         date: currentDate,
         startTime: '11:00',
       }),
@@ -429,8 +565,7 @@ describe('app routes', () => {
     )
 
     expect(screen.getByRole('button', { name: /^daily$/i })).toHaveClass('active')
-    expect(screen.getByText(/Book iMEET Room/i)).toBeInTheDocument()
-    expect(screen.getByText(/Book Loft Room/i)).toBeInTheDocument()
+    expect(screen.getByText(/Book Yellow Conference Room/i)).toBeInTheDocument()
     expect(screen.getByText('8am')).toBeInTheDocument()
     expect(screen.getByText('8:30am')).toBeInTheDocument()
     expect(screen.getAllByText(/Camelia/).length).toBeGreaterThan(0)
@@ -451,6 +586,7 @@ describe('app routes', () => {
         <App />
       </MemoryRouter>,
     )
+    switchToChisinau()
 
     fireEvent.mouseDown(
       screen.getByLabelText(`Select iMEET Room ${currentDate} 13:00`),
@@ -484,6 +620,7 @@ describe('app routes', () => {
         <App />
       </MemoryRouter>,
     )
+    switchToChisinau()
 
     fireEvent.mouseDown(
       screen.getByLabelText(`Select iMEET Room ${currentDate} 13:00`),
@@ -502,6 +639,7 @@ describe('app routes', () => {
         <App />
       </MemoryRouter>,
     )
+    switchToChisinau()
 
     fireEvent.click(screen.getByRole('button', { name: /block time/i }))
     fireEvent.change(screen.getByLabelText(/^room$/i), { target: { value: 'imeet' } })
@@ -534,6 +672,7 @@ describe('app routes', () => {
         <App />
       </MemoryRouter>,
     )
+    switchToChisinau()
 
     fireEvent.click(screen.getByRole('button', { name: /new booking/i }))
     fireEvent.change(screen.getByLabelText(/^date$/i), { target: { value: '2026-06-02' } })
@@ -566,7 +705,11 @@ describe('app routes', () => {
         method: 'POST',
       }),
     )
-    expect(fetchMock).toHaveBeenCalledTimes(4)
+    const postedDates = fetchMock.mock.calls
+      .filter(([, init]) => init?.method === 'POST')
+      .map(([, init]) => JSON.parse(String(init?.body)).date)
+
+    expect(postedDates).toEqual(['2026-06-02', '2026-06-04'])
     expect(getReservations().filter((item) => item.email === 'ion@example.com')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ date: '2026-06-02', startTime: '13:00', endTime: '15:00' }),
@@ -574,6 +717,84 @@ describe('app routes', () => {
       ]),
     )
     expect(getReservations().filter((item) => item.email === 'ion@example.com')).toHaveLength(2)
+  })
+
+  it('starts admin booking requests for multiple free dates in parallel', async () => {
+    const pendingPosts: Array<() => void> = []
+    const postedDates: string[] = []
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/admin/reservations') && init?.method === 'POST') {
+        const body = JSON.parse(String(init.body))
+        postedDates.push(body.date)
+
+        return new Promise<Response>((resolve) => {
+          pendingPosts.push(() =>
+            resolve(
+              jsonResponse({
+                data: {
+                  id: `${body.date}-${body.start_time}`,
+                  room_id: body.room_id,
+                  date: body.date,
+                  start_time: body.start_time,
+                  end_time: body.end_time,
+                  first_name: body.first_name,
+                  last_name: body.last_name,
+                  email: body.email,
+                  phone: body.phone,
+                  status: body.status,
+                  notes: body.notes,
+                  created_at: '2026-06-05T12:00:00.000000Z',
+                },
+              }, 201),
+            ),
+          )
+        })
+      }
+
+      return jsonResponse({ message: 'Unexpected API request' }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+    switchToChisinau()
+
+    fireEvent.click(screen.getByRole('button', { name: /new booking/i }))
+    fireEvent.change(screen.getByLabelText(/^date$/i), { target: { value: '2026-06-20' } })
+    fireEvent.change(screen.getByLabelText(/start time/i), { target: { value: '13:00' } })
+    fireEvent.change(screen.getByLabelText(/end time/i), { target: { value: '15:00' } })
+    fireEvent.change(screen.getByLabelText(/^additional date$/i), {
+      target: { value: '2026-06-21' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /add date/i }))
+    fireEvent.change(screen.getByLabelText(/^nume$/i), { target: { value: 'Marin' } })
+    fireEvent.change(screen.getByLabelText(/prenume/i), { target: { value: 'Ion' } })
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'ion@example.com' } })
+    fireEvent.change(screen.getByLabelText(/telefon/i), { target: { value: '060111222' } })
+    fireEvent.click(screen.getByRole('button', { name: /create booking/i }))
+
+    await waitFor(() => {
+      expect(postedDates).toEqual(['2026-06-20', '2026-06-21'])
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: /new booking/i })).not.toBeInTheDocument()
+    })
+    expect(getReservations().filter((item) => item.email === 'ion@example.com')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ date: '2026-06-20', startTime: '13:00', endTime: '15:00' }),
+        expect.objectContaining({ date: '2026-06-21', startTime: '13:00', endTime: '15:00' }),
+      ]),
+    )
+
+    pendingPosts.forEach((resolvePost) => resolvePost())
+
+    await waitFor(() => {
+      expect(screen.getByText(/Created 2 bookings/i)).toBeInTheDocument()
+    })
   })
 
   it('copies an existing admin booking into new bookings on multiple dates', async () => {
@@ -596,6 +817,7 @@ describe('app routes', () => {
         <App />
       </MemoryRouter>,
     )
+    switchToChisinau()
 
     fireEvent.click(screen.getByRole('button', { name: /Ana Popescu/i }))
     fireEvent.click(screen.getByRole('button', { name: /copy booking/i }))
@@ -616,7 +838,7 @@ describe('app routes', () => {
         method: 'POST',
       }),
     )
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(4)
     expect(getReservations().filter((item) => item.email === 'ana@example.com')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ date: '2026-06-08', roomId: 'imeet', startTime: '11:00' }),
@@ -646,6 +868,7 @@ describe('app routes', () => {
         <App />
       </MemoryRouter>,
     )
+    switchToChisinau()
 
     fireEvent.click(screen.getByRole('button', { name: /Ana Popescu/i }))
     fireEvent.click(screen.getByRole('button', { name: /copy booking/i }))
@@ -659,7 +882,7 @@ describe('app routes', () => {
       expect(screen.getByText(/Created 1 booking/i)).toBeInTheDocument()
     })
     expect(screen.getByText(/Skipped 1 occupied date/i)).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/admin/reservations',
       expect.objectContaining({
@@ -748,4 +971,83 @@ function mockAdminReservationApi() {
   vi.stubGlobal('fetch', fetchMock)
 
   return fetchMock
+}
+
+function mockAdminRoomsApi() {
+  return vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/api/admin/rooms') && !init?.method) {
+      return jsonResponse({
+        data: [
+          apiRoom({ id: 'imeet', name: 'iMEET Room', business_id: 'chisinau', location: 'iHUB Chisinau' }),
+          apiRoom({
+            id: 'yellow-conference',
+            name: 'Yellow Conference Room',
+            capacity: 30,
+            business_id: 'yellow-conference',
+            location: 'iHUB Yellow Conference',
+          }),
+        ],
+      })
+    }
+
+    if (url.endsWith('/api/admin/rooms') && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body))
+
+      return jsonResponse({
+        data: apiRoom({
+          id: 'podcast-studio',
+          name: body.name,
+          capacity: body.capacity,
+          business_id: body.business_id,
+          location: body.location,
+          amenities: body.amenities,
+          accent: body.accent,
+        }),
+      }, 201)
+    }
+
+    if (url.includes('/api/admin/rooms/') && init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body))
+      const id = url.split('/').pop() ?? 'imeet'
+
+      return jsonResponse({
+        data: apiRoom({
+          id,
+          name: body.name,
+          capacity: body.capacity,
+          business_id: body.business_id,
+          location: body.location,
+          amenities: body.amenities,
+          accent: body.accent,
+        }),
+      })
+    }
+
+    if (url.endsWith('/api/admin/reservations') && !init?.method) {
+      return jsonResponse({ data: [] })
+    }
+
+    return jsonResponse({ message: 'Unexpected API request' }, 404)
+  })
+}
+
+function apiRoom(overrides: Partial<{
+  id: string
+  name: string
+  capacity: number
+  business_id: string
+  location: string
+  amenities: string[]
+  accent: string
+}> = {}) {
+  return {
+    id: 'imeet',
+    name: 'iMEET Room',
+    capacity: 8,
+    business_id: 'chisinau',
+    location: 'iHUB Chisinau',
+    amenities: [],
+    accent: '#f7de05',
+    ...overrides,
+  }
 }

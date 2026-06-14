@@ -1,7 +1,7 @@
-import { CalendarCheck, CheckCircle2 } from 'lucide-react'
+import { CalendarCheck, CheckCircle2, MapPin, Users } from 'lucide-react'
+import type { CSSProperties } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { ReservationForm } from '../components/ReservationForm'
-import { RoomCard } from '../components/RoomCard'
 import { SlotPicker } from '../components/SlotPicker'
 import { rooms as fallbackRooms } from '../data/rooms'
 import {
@@ -19,11 +19,12 @@ import {
 import { getRoomBlocks } from '../services/reservationStore'
 
 const today = new Date().toISOString().slice(0, 10)
+const orderedFallbackRooms = orderConferenceRoomsFirst(fallbackRooms)
 
 export function UserBookingPage() {
   const [date, setDate] = useState(today)
   const [rooms, setRooms] = useState<Room[]>(fallbackRooms)
-  const [selectedRoomId, setSelectedRoomId] = useState(fallbackRooms[0].id)
+  const [selectedRoomId, setSelectedRoomId] = useState(orderedFallbackRooms[0].id)
   const [selectedSlot, setSelectedSlot] = useState('')
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [availability, setAvailability] = useState<Record<string, AvailabilitySlot[]>>({})
@@ -31,10 +32,11 @@ export function UserBookingPage() {
   const [message, setMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState<ReservationFormData>(() =>
-    emptyFormData(fallbackRooms[0].id, today, ''),
+    emptyFormData(orderedFallbackRooms[0].id, today, ''),
   )
 
-  const selectedRoom = rooms.find((room) => room.id === selectedRoomId) ?? rooms[0] ?? fallbackRooms[0]
+  const orderedRooms = useMemo(() => orderConferenceRoomsFirst(rooms), [rooms])
+  const selectedRoom = orderedRooms.find((room) => room.id === selectedRoomId) ?? orderedRooms[0] ?? orderedFallbackRooms[0]
 
   useEffect(() => {
     let isMounted = true
@@ -57,6 +59,16 @@ export function UserBookingPage() {
       isMounted = false
     }
   }, [])
+
+  useEffect(() => {
+    if (orderedRooms.some((room) => room.id === selectedRoomId)) {
+      return
+    }
+
+    const nextRoomId = orderedRooms[0]?.id ?? orderedFallbackRooms[0].id
+    setSelectedRoomId(nextRoomId)
+    setFormData((current) => ({ ...current, roomId: nextRoomId }))
+  }, [orderedRooms, selectedRoomId])
 
   useEffect(() => {
     let isMounted = true
@@ -87,7 +99,7 @@ export function UserBookingPage() {
 
   const availableCounts = useMemo(() => {
     return new Map(
-      rooms.map((room) => [
+      orderedRooms.map((room) => [
         room.id,
         (availability[room.id] ?? getPublicBookingSlots().map((slot) => ({ ...slot, available: true }))).filter(
           (slot) =>
@@ -106,7 +118,9 @@ export function UserBookingPage() {
         ).length,
       ]),
     )
-  }, [availability, date, reservations, roomBlocks, rooms])
+  }, [availability, date, orderedRooms, reservations, roomBlocks])
+
+  const selectedAvailableCount = availableCounts.get(selectedRoom.id) ?? 0
 
   const handleRoomSelect = (roomId: string) => {
     setSelectedRoomId(roomId)
@@ -120,7 +134,7 @@ export function UserBookingPage() {
     setMessage('')
     setFormData((current) => ({
       ...current,
-      roomId: selectedRoomId,
+      roomId: selectedRoom.id,
       date,
       startTime: slot.start,
       endTime: slot.end,
@@ -174,7 +188,7 @@ export function UserBookingPage() {
         ),
       }))
       setSelectedSlot('')
-      setFormData(emptyFormData(selectedRoomId, date, ''))
+      setFormData(emptyFormData(selectedRoom.id, date, ''))
       setMessage(`Rezervare confirmata pentru ${selectedRoom.name}, ora ${reservation.startTime}.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Rezervarea nu a putut fi salvata.')
@@ -201,16 +215,38 @@ export function UserBookingPage() {
       </section>
 
       <section className="content-grid">
-        <div className="room-list">
-          {rooms.map((room) => (
-            <RoomCard
-              key={room.id}
-              room={room}
-              selected={room.id === selectedRoomId}
-              availableCount={availableCounts.get(room.id) ?? 0}
-              onSelect={() => handleRoomSelect(room.id)}
-            />
-          ))}
+        <div className="room-select-panel">
+          <label className="room-select-control">
+            Alege sala
+            <select value={selectedRoomId} onChange={(event) => handleRoomSelect(event.target.value)}>
+              {orderedRooms.map((room) => (
+                <option key={room.id} value={room.id}>
+                  {room.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="selected-room-summary" style={{ '--room-accent': selectedRoom.accent } as CSSProperties}>
+            <span className="room-card-accent" />
+            <span className="room-card-title">{selectedRoom.name}</span>
+            <span className="room-card-meta">
+              <span>
+                <Users size={16} />
+                {selectedRoom.capacity} persoane
+              </span>
+              <span>
+                <MapPin size={16} />
+                {selectedRoom.location}
+              </span>
+            </span>
+            <span className="amenity-row">
+              {selectedRoom.amenities.map((amenity) => (
+                <span key={amenity}>{amenity}</span>
+              ))}
+            </span>
+            <span className="availability-pill">{selectedAvailableCount} sloturi libere</span>
+          </div>
         </div>
 
         <div className="booking-panel">
@@ -223,11 +259,11 @@ export function UserBookingPage() {
           </div>
 
           <SlotPicker
-            roomId={selectedRoomId}
+            roomId={selectedRoom.id}
             date={date}
             reservations={reservations}
             roomBlocks={roomBlocks}
-            slots={availability[selectedRoomId]}
+            slots={availability[selectedRoom.id]}
             selectedSlot={selectedSlot}
             onSelectSlot={handleSlotSelect}
           />
@@ -275,17 +311,37 @@ function getReservationValidationMessage(formData: ReservationFormData): string 
   return ''
 }
 
-function mergeRoomMetadata(room: Pick<Room, 'id' | 'name' | 'capacity'>): Room {
+function mergeRoomMetadata(room: Room): Room {
   const localRoom = fallbackRooms.find((item) => item.id === room.id)
 
   return {
     id: room.id,
     name: room.name,
     capacity: room.capacity,
-    location: localRoom?.location ?? 'iHUB',
-    amenities: localRoom?.amenities ?? [],
-    accent: localRoom?.accent ?? '#74bd45',
+    businessId: room.businessId ?? localRoom?.businessId,
+    location: room.location || localRoom?.location || 'iHUB',
+    amenities: room.amenities.length > 0 ? room.amenities : localRoom?.amenities ?? [],
+    accent: room.accent || localRoom?.accent || '#74bd45',
   }
+}
+
+function orderConferenceRoomsFirst(roomList: Room[]): Room[] {
+  return [...roomList].sort((firstRoom, secondRoom) => {
+    const firstScore = isConferenceRoom(firstRoom) ? 0 : 1
+    const secondScore = isConferenceRoom(secondRoom) ? 0 : 1
+
+    if (firstScore !== secondScore) {
+      return firstScore - secondScore
+    }
+
+    return firstRoom.name.localeCompare(secondRoom.name)
+  })
+}
+
+function isConferenceRoom(room: Room): boolean {
+  const searchableText = `${room.name} ${room.location}`.toLowerCase()
+
+  return searchableText.includes('conference') || searchableText.includes('conferinta')
 }
 
 function emptyFormData(roomId: string, date: string, startTime: string): ReservationFormData {
