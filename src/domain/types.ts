@@ -5,6 +5,7 @@ export type Room = {
   location: string
   amenities: string[]
   accent: string
+  businessId?: string
 }
 
 export type TimeSlot = {

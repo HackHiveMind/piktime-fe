@@ -2,7 +2,6 @@ import {
   BarChart3,
   Building2,
   CalendarDays,
-  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -17,9 +16,10 @@ import {
 import type { CSSProperties } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { ReservationForm } from '../components/ReservationForm'
-import { rooms } from '../data/rooms'
+import { rooms as defaultRooms } from '../data/rooms'
 import {
   RESERVATION_STATUSES,
+  createReservation,
   createRoomBlock,
   filterReservations,
   findConflictingReservation,
@@ -50,8 +50,11 @@ import {
 } from '../services/reservationStore'
 import {
   createAdminReservation,
+  createAdminRoom,
   deleteAdminReservation,
+  fetchAdminRooms,
   fetchAdminReservations,
+  updateAdminRoom,
 } from '../services/bookingApi'
 
 const today = getToday()
@@ -64,6 +67,11 @@ const calendarViewLabels: Record<CalendarView, string> = {
 }
 
 type AdminSection = 'calendar' | 'bookings' | 'customers' | 'rooms' | 'reports'
+type BusinessResource = {
+  id: string
+  name: string
+  shortName: string
+}
 
 type ModalState =
   | { mode: 'create'; date: string; startTime: string; roomId: string; copySourceId?: string }
@@ -84,7 +92,22 @@ const adminSections: Array<{
   { value: 'reports', label: 'Reports', icon: BarChart3 },
 ]
 
+const businessResources: BusinessResource[] = [
+  { id: 'yellow-conference', name: 'iHUB Yellow Conference', shortName: 'IH' },
+  { id: 'wfp-conference', name: 'iHUB - WFP Conference', shortName: 'IH' },
+  { id: 'chisinau', name: 'iHUB Chisinau', shortName: 'IH' },
+  { id: 'yellow', name: 'iHUB Yellow', shortName: 'IH' },
+]
+
+const ROOMS_STORAGE_KEY = 'ihub-admin-rooms'
+const ACTIVE_BUSINESS_STORAGE_KEY = 'ihub-admin-active-business'
+
 export function AdminCalendarPage() {
+  const [rooms, setRooms] = useState<Room[]>(() => getStoredRooms())
+  const [activeBusinessId, setActiveBusinessId] = useState(() => getStoredActiveBusinessId())
+  const [businessMenuOpen, setBusinessMenuOpen] = useState(false)
+  const [isAddingRoom, setIsAddingRoom] = useState(false)
+  const [newRoomForm, setNewRoomForm] = useState(() => emptyRoomForm(businessResources[0].id))
   const [reservations, setReservations] = useState<Reservation[]>(() => getReservations())
   const [roomBlocks, setRoomBlocks] = useState<RoomBlock[]>(() => getRoomBlocks())
   const [section, setSection] = useState<AdminSection>('calendar')
@@ -95,10 +118,10 @@ export function AdminCalendarPage() {
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState<ModalState>(null)
   const [formData, setFormData] = useState<ReservationFormData>(() =>
-    emptyFormData(rooms[0].id, today, '09:00'),
+    emptyFormData(defaultRooms[0].id, today, '09:00'),
   )
   const [blockFormData, setBlockFormData] = useState<RoomBlockFormData>(() =>
-    emptyBlockFormData(rooms[0].id, '09:00', '10:00'),
+    emptyBlockFormData(defaultRooms[0].id, '09:00', '10:00'),
   )
   const [additionalDates, setAdditionalDates] = useState<string[]>([])
   const [additionalDateDraft, setAdditionalDateDraft] = useState('')
@@ -107,7 +130,21 @@ export function AdminCalendarPage() {
   useEffect(() => {
     let isActive = true
 
-    async function loadReservations() {
+    async function loadAdminData() {
+      try {
+        const backendRooms = await fetchAdminRooms()
+
+        if (!isActive) {
+          return
+        }
+
+        const normalizedRooms = withBusinessAssignments(backendRooms)
+        saveStoredRooms(normalizedRooms)
+        setRooms(normalizedRooms)
+      } catch {
+        // Keep stored room settings visible when the room API is temporarily unavailable.
+      }
+
       try {
         const backendReservations = await fetchAdminReservations()
 
@@ -122,32 +159,53 @@ export function AdminCalendarPage() {
       }
     }
 
-    loadReservations()
+    loadAdminData()
 
     return () => {
       isActive = false
     }
   }, [])
 
+  useEffect(() => {
+    saveStoredRooms(rooms)
+  }, [rooms])
+
+  useEffect(() => {
+    saveStoredActiveBusinessId(activeBusinessId)
+  }, [activeBusinessId])
+
   const calendarDates = useMemo(
     () => getCalendarDates(anchorDate, calendarView),
     [anchorDate, calendarView],
   )
+  const activeBusiness =
+    businessResources.find((business) => business.id === activeBusinessId) ?? businessResources[0]
+  const activeBusinessRooms = useMemo(
+    () => rooms.filter((room) => getRoomBusinessId(room) === activeBusiness.id),
+    [activeBusiness.id, rooms],
+  )
+  const activeBusinessRoomIds = useMemo(
+    () => new Set(activeBusinessRooms.map((room) => room.id)),
+    [activeBusinessRooms],
+  )
+  const effectiveRoomFilter =
+    roomFilter === 'all' || activeBusinessRoomIds.has(roomFilter) ? roomFilter : 'all'
   const visibleReservations = useMemo(
     () =>
       filterReservations(reservations, {
-        roomId: roomFilter,
+        roomId: effectiveRoomFilter,
         status: statusFilter,
         search,
         dates: calendarDates,
-      }),
-    [calendarDates, reservations, roomFilter, search, statusFilter],
+      }).filter((reservation) => activeBusinessRoomIds.has(reservation.roomId)),
+    [activeBusinessRoomIds, calendarDates, effectiveRoomFilter, reservations, search, statusFilter],
   )
   const stats = useMemo(() => getReservationStats(reservations, today), [reservations])
   const customers = useMemo(() => buildCustomers(visibleReservations), [visibleReservations])
 
   const openCreateModal = (date: string, startTime: string, endTime?: string, selectedRoomId?: string) => {
-    const roomId = selectedRoomId ?? (roomFilter === 'all' ? rooms[0].id : roomFilter)
+    const fallbackRoomId = activeBusinessRooms[0]?.id ?? rooms[0].id
+    const roomId = selectedRoomId ?? (effectiveRoomFilter === 'all' ? fallbackRoomId : effectiveRoomFilter)
     setFormData(emptyFormData(roomId, date, startTime, endTime))
     setModal({ mode: 'create', date, startTime, roomId })
     setAdditionalDates([])
@@ -168,7 +226,7 @@ export function AdminCalendarPage() {
       return
     }
 
-    const roomId = roomFilter === 'all' ? rooms[0].id : roomFilter
+    const roomId = effectiveRoomFilter === 'all' ? activeBusinessRooms[0]?.id ?? rooms[0].id : effectiveRoomFilter
     setBlockFormData(emptyBlockFormData(roomId, '09:00', '10:00'))
     setModal({ mode: 'block-create' })
     setMessage('')
@@ -275,7 +333,12 @@ export function AdminCalendarPage() {
 
       let nextReservations = reservations
       const skippedDates: string[] = []
-      const createdReservations: Reservation[] = []
+      const optimisticReservations: Reservation[] = []
+      const reservationRequests: Array<{
+        date: string
+        optimisticReservation: Reservation
+        promise: Promise<Reservation>
+      }> = []
 
       for (const date of parsedDates.dates) {
         const nextFormData = { ...formData, date }
@@ -290,29 +353,59 @@ export function AdminCalendarPage() {
           continue
         }
 
-        const reservationConflict = modal.copySourceId
-          ? findConflictingReservation(reservations, nextFormData)
-          : undefined
+        const reservationConflict = findConflictingReservation(nextReservations, nextFormData)
+
         if (reservationConflict && nextFormData.status !== 'cancelled') {
           skippedDates.push(date)
           continue
         }
 
-        try {
-          const reservation = await createAdminReservation(nextFormData)
-          nextReservations = replaceReservationInMemory(nextReservations, reservation)
-          saveReservations(nextReservations)
-          createdReservations.push(reservation)
-        } catch {
-          skippedDates.push(date)
-        }
+        const optimisticReservation = createReservation(nextFormData)
+        optimisticReservations.push(optimisticReservation)
+        nextReservations = replaceReservationInMemory(nextReservations, optimisticReservation)
+        reservationRequests.push({
+          date,
+          optimisticReservation,
+          promise: createAdminReservation(nextFormData),
+        })
       }
 
+      saveReservations(nextReservations)
       setReservations(nextReservations)
       setModal(null)
       setAdditionalDates([])
       setAdditionalDateDraft('')
-      setMessage(getBatchCreateMessage(createdReservations.length, skippedDates))
+      setMessage(`Saving ${optimisticReservations.length} booking${optimisticReservations.length === 1 ? '' : 's'}...`)
+
+      Promise.allSettled(reservationRequests.map((request) => request.promise)).then((reservationResults) => {
+        const successCount = reservationResults.filter((result) => result.status === 'fulfilled').length
+
+        setReservations((currentReservations) => {
+          let resolvedReservations = currentReservations
+
+          reservationResults.forEach((result, index) => {
+            const request = reservationRequests[index]
+
+            if (result.status === 'fulfilled') {
+              resolvedReservations = replaceReservationInMemory(
+                resolvedReservations.filter((reservation) => reservation.id !== request.optimisticReservation.id),
+                result.value,
+              )
+              return
+            }
+
+            skippedDates.push(request.date)
+            resolvedReservations = resolvedReservations.filter(
+              (reservation) => reservation.id !== request.optimisticReservation.id,
+            )
+          })
+
+          saveReservations(resolvedReservations)
+
+          return resolvedReservations
+        })
+        setMessage(getBatchCreateMessage(successCount, skippedDates))
+      })
       return
     }
 
@@ -383,20 +476,79 @@ export function AdminCalendarPage() {
     setMessage('Room unblocked.')
   }
 
-  const handleQuickStatus = (status: ReservationStatus) => {
-    if (modal?.mode !== 'edit') {
+  const openAddRoomModal = () => {
+    setNewRoomForm(emptyRoomForm(activeBusinessId))
+    setBusinessMenuOpen(false)
+    setIsAddingRoom(true)
+  }
+
+  const handleAddRoom = async () => {
+    const name = newRoomForm.name.trim()
+    const business = getBusinessById(newRoomForm.businessId)
+
+    if (!name) {
+      setMessage('Room name is required.')
       return
     }
 
-    const nextReservation = updateReservation(modal.reservation, {
-      ...formData,
-      status,
-    })
-    const nextReservations = upsertReservation(nextReservation)
+    const room: Room = {
+      id: getUniqueRoomId(name, rooms),
+      name,
+      capacity: Math.max(1, Number(newRoomForm.capacity) || 1),
+      location: business.name,
+      amenities: [],
+      accent: '#f7de05',
+      businessId: business.id,
+    }
 
-    setReservations(nextReservations)
-    setModal(null)
-    setMessage(`Booking marked as ${getStatusLabel(status)}.`)
+    try {
+      const savedRoom = await createAdminRoom(room)
+      const normalizedRoom = withBusinessAssignments([savedRoom])[0]
+
+      setRooms((currentRooms) => [...currentRooms.filter((item) => item.id !== normalizedRoom.id), normalizedRoom])
+      setActiveBusinessId(business.id)
+      setRoomFilter(normalizedRoom.id)
+      setNewRoomForm(emptyRoomForm(business.id))
+      setIsAddingRoom(false)
+      setBusinessMenuOpen(false)
+      setMessage(`${normalizedRoom.name} added.`)
+    } catch (error) {
+      setRooms((currentRooms) => [...currentRooms, room])
+      setActiveBusinessId(business.id)
+      setRoomFilter(room.id)
+      setNewRoomForm(emptyRoomForm(business.id))
+      setIsAddingRoom(false)
+      setBusinessMenuOpen(false)
+      setMessage(error instanceof Error ? `${room.name} saved locally. ${error.message}` : `${room.name} saved locally.`)
+    }
+  }
+
+  const assignRoomBusiness = async (roomId: string, businessId: string) => {
+    const business = getBusinessById(businessId)
+    const nextRooms = rooms.map((room) =>
+      room.id === roomId ? { ...room, businessId: business.id, location: business.name } : room,
+    )
+    const updatedRoom = nextRooms.find((room) => room.id === roomId)
+
+    setRooms(nextRooms)
+
+    if (!updatedRoom) {
+      return
+    }
+
+    try {
+      const savedRoom = await updateAdminRoom(updatedRoom)
+      setRooms((currentRooms) =>
+        currentRooms.map((room) => (room.id === roomId ? withBusinessAssignments([savedRoom])[0] : room)),
+      )
+      setMessage(`Room moved to ${business.name}.`)
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? `Room moved locally to ${business.name}. ${error.message}`
+          : `Room moved locally to ${business.name}.`,
+      )
+    }
   }
 
   const shiftCalendar = (direction: -1 | 1) => {
@@ -407,12 +559,53 @@ export function AdminCalendarPage() {
   return (
     <div className="admin-workspace">
       <aside className="admin-sidebar" aria-label="Admin sections">
-        <div className="admin-sidebar-brand">
-          <img src="/ihub-logo.png" alt="iHUB Moldova" />
-          <span>
-            <strong>iHUB Admin</strong>
-            <small>Picktime-style workspace</small>
-          </span>
+        <div className="business-switcher">
+          <button
+            type="button"
+            className="admin-sidebar-brand"
+            aria-label="Current business"
+            aria-expanded={businessMenuOpen}
+            onClick={() => setBusinessMenuOpen((isOpen) => !isOpen)}
+          >
+            <span className="business-avatar">{activeBusiness.shortName}</span>
+            <span>
+              <strong>{activeBusiness.name}</strong>
+              <small>Switch business</small>
+            </span>
+          </button>
+          {businessMenuOpen ? (
+            <div className="business-menu">
+              <div className="business-menu-heading">
+                <span className="business-avatar">{activeBusiness.shortName}</span>
+                <strong>{activeBusiness.name}</strong>
+              </div>
+              <small>Switch Business</small>
+              {businessResources.map((business) => (
+                <button
+                  type="button"
+                  key={business.id}
+                  className={business.id === activeBusinessId ? 'active' : undefined}
+                  aria-label={business.name}
+                  onClick={() => {
+                    setActiveBusinessId(business.id)
+                    setRoomFilter('all')
+                    setBusinessMenuOpen(false)
+                  }}
+                >
+                  <span className="business-avatar">{business.shortName}</span>
+                  {business.name}
+                </button>
+              ))}
+              <button
+                type="button"
+                className="business-add-button"
+                onClick={openAddRoomModal}
+              >
+                <Plus size={16} />
+                Add room
+              </button>
+            </div>
+          ) : null}
         </div>
 
         <nav className="admin-sidebar-nav">
@@ -457,11 +650,11 @@ export function AdminCalendarPage() {
             <label className="picktime-pill-select">
               <select
                 aria-label="Resource"
-                value={roomFilter}
+                value={effectiveRoomFilter}
                 onChange={(event) => setRoomFilter(event.target.value)}
               >
                 <option value="all">All Resources</option>
-                {rooms.map((room) => (
+                {activeBusinessRooms.map((room) => (
                   <option key={room.id} value={room.id}>
                     {room.name}
                   </option>
@@ -530,7 +723,8 @@ export function AdminCalendarPage() {
           <CalendarSection
             view={calendarView}
             dates={calendarDates}
-            roomFilter={roomFilter}
+            roomFilter={effectiveRoomFilter}
+            rooms={activeBusinessRooms}
             reservations={visibleReservations}
             roomBlocks={roomBlocks}
             onCreate={openCreateModal}
@@ -540,15 +734,79 @@ export function AdminCalendarPage() {
         ) : null}
 
         {section === 'bookings' ? (
-          <BookingList reservations={visibleReservations} onEdit={openEditModal} />
+          <BookingList rooms={activeBusinessRooms} reservations={visibleReservations} onEdit={openEditModal} />
         ) : null}
 
         {section === 'customers' ? <CustomerList customers={customers} /> : null}
 
-        {section === 'rooms' ? <RoomOverview reservations={visibleReservations} /> : null}
+        {section === 'rooms' ? (
+          <RoomOverview
+            rooms={activeBusinessRooms}
+            businessResources={businessResources}
+            reservations={visibleReservations}
+            onAddRoom={openAddRoomModal}
+            onAssignBusiness={assignRoomBusiness}
+          />
+        ) : null}
 
         {section === 'reports' ? <ReportsPanel stats={stats} reservations={visibleReservations} /> : null}
       </section>
+
+      {isAddingRoom ? (
+        <div className="modal-backdrop">
+          <section className="modal-card picktime-modal" role="dialog" aria-modal="true" aria-labelledby="add-room-title">
+            <div className="modal-heading">
+              <div>
+                <span className="eyebrow">Resources</span>
+                <h2 id="add-room-title">Add room</h2>
+              </div>
+              <button type="button" className="icon-button" aria-label="Close" onClick={() => setIsAddingRoom(false)}>
+                x
+              </button>
+            </div>
+            <div className="form-grid">
+              <label>
+                Room name
+                <input
+                  value={newRoomForm.name}
+                  onChange={(event) => setNewRoomForm({ ...newRoomForm, name: event.target.value })}
+                  placeholder="Podcast Studio"
+                />
+              </label>
+              <label>
+                Capacity
+                <input
+                  type="number"
+                  min="1"
+                  value={newRoomForm.capacity}
+                  onChange={(event) => setNewRoomForm({ ...newRoomForm, capacity: event.target.value })}
+                />
+              </label>
+              <label>
+                Business
+                <select
+                  value={newRoomForm.businessId}
+                  onChange={(event) => setNewRoomForm({ ...newRoomForm, businessId: event.target.value })}
+                >
+                  {businessResources.map((business) => (
+                    <option key={business.id} value={business.id}>
+                      {business.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="text-button" onClick={() => setIsAddingRoom(false)}>
+                Cancel
+              </button>
+              <button type="button" className="primary-button" onClick={handleAddRoom}>
+                Save room
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {modal ? (
         <div className="modal-backdrop" role="presentation">
@@ -575,7 +833,7 @@ export function AdminCalendarPage() {
                     value={blockFormData.roomId}
                     onChange={(event) => setBlockFormData({ ...blockFormData, roomId: event.target.value })}
                   >
-                    {rooms.map((room) => (
+                    {activeBusinessRooms.map((room) => (
                       <option key={room.id} value={room.id}>
                         {room.name}
                       </option>
@@ -740,7 +998,7 @@ export function AdminCalendarPage() {
             ) : null}
 
             <ReservationForm
-              rooms={rooms}
+              rooms={activeBusinessRooms}
               value={formData}
               submitLabel={modal.mode === 'edit' ? 'Save changes' : 'Create booking(s)'}
               onChange={setFormData}
@@ -775,13 +1033,6 @@ export function AdminCalendarPage() {
 
             {modal.mode === 'edit' ? (
               <div className="modal-actions">
-                <button type="button" className="secondary-button" onClick={() => handleQuickStatus('confirmed')}>
-                  <CheckCircle2 size={18} />
-                  Confirm
-                </button>
-                <button type="button" className="text-button" onClick={() => handleQuickStatus('no-show')}>
-                  Mark no-show
-                </button>
                 <button type="button" className="text-button" onClick={() => openCopyModal(modal.reservation)}>
                   Copy booking
                 </button>
@@ -829,6 +1080,7 @@ function CalendarSection({
   view,
   dates,
   roomFilter,
+  rooms,
   reservations,
   roomBlocks,
   onCreate,
@@ -838,6 +1090,7 @@ function CalendarSection({
   view: CalendarView
   dates: string[]
   roomFilter: string
+  rooms: Room[]
   reservations: Reservation[]
   roomBlocks: RoomBlock[]
   onCreate: (date: string, startTime: string, endTime?: string, roomId?: string) => void
@@ -845,7 +1098,7 @@ function CalendarSection({
   onEditBlock: (block: RoomBlock) => void
 }) {
   if (view === 'agenda') {
-    return <BookingList reservations={reservations} onEdit={onEdit} />
+    return <BookingList rooms={rooms} reservations={reservations} onEdit={onEdit} />
   }
 
   if (view === 'month') {
@@ -863,7 +1116,7 @@ function CalendarSection({
                 </button>
               </div>
               {dayReservations.slice(0, 3).map((reservation) => (
-                <ReservationChip key={reservation.id} reservation={reservation} onEdit={onEdit} />
+                <ReservationChip key={reservation.id} rooms={rooms} reservation={reservation} onEdit={onEdit} />
               ))}
               {dayReservations.length > 3 ? <small>+{dayReservations.length - 3} more</small> : null}
             </article>
@@ -878,6 +1131,7 @@ function CalendarSection({
       <DailyResourceCalendar
         date={dates[0]}
         roomFilter={roomFilter}
+        rooms={rooms}
         reservations={reservations}
         roomBlocks={roomBlocks}
         onCreate={onCreate}
@@ -903,6 +1157,7 @@ function CalendarSection({
             slotStart={slot.start}
             days={dates}
             reservations={reservations}
+            rooms={rooms}
             onCreate={onCreate}
             onEdit={onEdit}
           />
@@ -915,6 +1170,7 @@ function CalendarSection({
 function DailyResourceCalendar({
   date,
   roomFilter,
+  rooms,
   reservations,
   roomBlocks,
   onCreate,
@@ -923,6 +1179,7 @@ function DailyResourceCalendar({
 }: {
   date: string
   roomFilter: string
+  rooms: Room[]
   reservations: Reservation[]
   roomBlocks: RoomBlock[]
   onCreate: (date: string, startTime: string, endTime?: string, roomId?: string) => void
@@ -1126,12 +1383,14 @@ function ReservationBlock({
 function CalendarRow({
   slotStart,
   days,
+  rooms,
   reservations,
   onCreate,
   onEdit,
 }: {
   slotStart: string
   days: string[]
+  rooms: Room[]
   reservations: Reservation[]
   onCreate: (date: string, startTime: string, endTime?: string, roomId?: string) => void
   onEdit: (reservation: Reservation) => void
@@ -1147,7 +1406,7 @@ function CalendarRow({
         return (
           <div key={`${day}-${slotStart}`} className="calendar-cell">
             {cellReservations.map((reservation) => (
-              <ReservationChip key={reservation.id} reservation={reservation} onEdit={onEdit} />
+              <ReservationChip key={reservation.id} rooms={rooms} reservation={reservation} onEdit={onEdit} />
             ))}
             <button
               type="button"
@@ -1165,13 +1424,15 @@ function CalendarRow({
 }
 
 function ReservationChip({
+  rooms,
   reservation,
   onEdit,
 }: {
+  rooms: Room[]
   reservation: Reservation
   onEdit: (reservation: Reservation) => void
 }) {
-  const room = getRoom(reservation.roomId)
+  const room = getRoom(reservation.roomId, rooms)
 
   return (
     <button
@@ -1190,9 +1451,11 @@ function ReservationChip({
 }
 
 function BookingList({
+  rooms,
   reservations,
   onEdit,
 }: {
+  rooms: Room[]
   reservations: Reservation[]
   onEdit: (reservation: Reservation) => void
 }) {
@@ -1217,7 +1480,7 @@ function BookingList({
                 <strong>
                   {reservation.firstName} {reservation.lastName}
                 </strong>
-                <small>{getRoom(reservation.roomId).name}</small>
+                <small>{getRoom(reservation.roomId, rooms).name}</small>
               </span>
               <span>
                 {reservation.date}, {reservation.startTime} - {reservation.endTime}
@@ -1270,25 +1533,61 @@ function CustomerList({
   )
 }
 
-function RoomOverview({ reservations }: { reservations: Reservation[] }) {
+function RoomOverview({
+  rooms,
+  businessResources,
+  reservations,
+  onAddRoom,
+  onAssignBusiness,
+}: {
+  rooms: Room[]
+  businessResources: BusinessResource[]
+  reservations: Reservation[]
+  onAddRoom: () => void
+  onAssignBusiness: (roomId: string, businessId: string) => void
+}) {
   return (
-    <section className="room-admin-grid">
-      {rooms.map((room) => {
-        const roomReservations = reservations.filter((reservation) => reservation.roomId === room.id)
+    <section className="room-admin-section">
+      <div className="section-heading-row">
+        <h2>Rooms</h2>
+        <button type="button" className="primary-button rooms-add-button" onClick={onAddRoom}>
+          <Plus size={18} />
+          Add room
+        </button>
+      </div>
+      <div className="room-admin-grid">
+        {rooms.map((room) => {
+          const roomReservations = reservations.filter((reservation) => reservation.roomId === room.id)
+          const roomBusinessId = getRoomBusinessId(room)
 
-        return (
-          <article key={room.id} className="room-admin-card" style={{ '--room-accent': room.accent } as CSSProperties}>
-            <span className="room-card-accent" />
-            <strong>{room.name}</strong>
-            <small>
-              <MapPin size={15} />
-              {room.location}
-            </small>
-            <span>{room.capacity} seats</span>
-            <span>{roomReservations.length} visible bookings</span>
-          </article>
-        )
-      })}
+          return (
+            <article key={room.id} className="room-admin-card" style={{ '--room-accent': room.accent } as CSSProperties}>
+              <span className="room-card-accent" />
+              <strong>{room.name}</strong>
+              <small>
+                <MapPin size={15} />
+                {room.location}
+              </small>
+              <span>{room.capacity} seats</span>
+              <span>{roomReservations.length} visible bookings</span>
+              <label className="room-business-setting">
+                Business
+                <select
+                  aria-label={`Business for ${room.name}`}
+                  value={roomBusinessId}
+                  onChange={(event) => onAssignBusiness(room.id, event.target.value)}
+                >
+                  {businessResources.map((business) => (
+                    <option key={business.id} value={business.id}>
+                      {business.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </article>
+          )
+        })}
+      </div>
     </section>
   )
 }
@@ -1340,8 +1639,8 @@ function buildCustomers(reservations: Reservation[]) {
   return Array.from(customers.values())
 }
 
-function getRoom(roomId: string) {
-  return rooms.find((room) => room.id === roomId) ?? rooms[0]
+function getRoom(roomId: string, rooms: Room[] = defaultRooms) {
+  return rooms.find((room) => room.id === roomId) ?? rooms[0] ?? defaultRooms[0]
 }
 
 function getStatusLabel(status: ReservationStatus): string {
@@ -1370,6 +1669,156 @@ function emptyBlockFormData(roomId: string, startTime: string, endTime: string):
     endTime,
     notes: '',
   }
+}
+
+function emptyRoomForm(businessId: string) {
+  return {
+    name: '',
+    capacity: '8',
+    businessId,
+  }
+}
+
+function getStoredRooms(): Room[] {
+  if (typeof localStorage === 'undefined') {
+    return withBusinessAssignments(defaultRooms)
+  }
+
+  const storedRooms = readStoredRooms()
+  if (storedRooms.length === 0) {
+    return withBusinessAssignments(defaultRooms)
+  }
+
+  return mergeRooms(withBusinessAssignments(defaultRooms), storedRooms)
+}
+
+function readStoredRooms(): Room[] {
+  try {
+    const rawRooms = localStorage.getItem(ROOMS_STORAGE_KEY)
+    if (!rawRooms) {
+      return []
+    }
+
+    const parsedRooms: unknown = JSON.parse(rawRooms)
+    if (!Array.isArray(parsedRooms)) {
+      return []
+    }
+
+    return parsedRooms.filter(isRoom).map((room) => {
+      const businessId = getRoomBusinessId(room)
+      return {
+        ...room,
+        businessId,
+        location: getBusinessById(businessId).name,
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
+function saveStoredRooms(rooms: Room[]) {
+  localStorage.setItem(ROOMS_STORAGE_KEY, JSON.stringify(rooms))
+}
+
+function mergeRooms(defaultRooms: Room[], storedRooms: Room[]): Room[] {
+  const storedById = new Map(storedRooms.map((room) => [room.id, room]))
+  const mergedRooms = defaultRooms.map((room) => storedById.get(room.id) ?? room)
+  const defaultIds = new Set(defaultRooms.map((room) => room.id))
+  const addedRooms = storedRooms.filter((room) => !defaultIds.has(room.id))
+
+  return [...mergedRooms, ...addedRooms]
+}
+
+function isRoom(value: unknown): value is Room {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const room = value as Partial<Room>
+  return (
+    typeof room.id === 'string' &&
+    typeof room.name === 'string' &&
+    typeof room.capacity === 'number' &&
+    typeof room.location === 'string' &&
+    Array.isArray(room.amenities) &&
+    typeof room.accent === 'string'
+  )
+}
+
+function getStoredActiveBusinessId(): string {
+  if (typeof localStorage === 'undefined') {
+    return businessResources[0].id
+  }
+
+  return getBusinessById(localStorage.getItem(ACTIVE_BUSINESS_STORAGE_KEY) ?? '').id
+}
+
+function saveStoredActiveBusinessId(businessId: string) {
+  localStorage.setItem(ACTIVE_BUSINESS_STORAGE_KEY, getBusinessById(businessId).id)
+}
+
+function withBusinessAssignments(rooms: Room[]): Room[] {
+  return rooms.map((room) => {
+    const businessId = getDefaultBusinessId(room)
+    return {
+      ...room,
+      businessId,
+      location: getBusinessById(businessId).name,
+    }
+  })
+}
+
+function getDefaultBusinessId(room: Room): string {
+  if (room.businessId) {
+    return room.businessId
+  }
+
+  if (room.id === 'loft') {
+    return 'yellow'
+  }
+
+  if (room.id === 'yellow-conference') {
+    return 'yellow-conference'
+  }
+
+  if (room.id === 'green-conference') {
+    return 'wfp-conference'
+  }
+
+  return 'chisinau'
+}
+
+function getRoomBusinessId(room: Room): string {
+  return getBusinessById(room.businessId ?? getDefaultBusinessId(room)).id
+}
+
+function getBusinessById(businessId: string): BusinessResource {
+  return businessResources.find((business) => business.id === businessId) ?? businessResources[0]
+}
+
+function getUniqueRoomId(name: string, rooms: Room[]): string {
+  const baseId = slugify(name) || 'room'
+  const existingIds = new Set(rooms.map((room) => room.id))
+
+  if (!existingIds.has(baseId)) {
+    return baseId
+  }
+
+  let index = 2
+  while (existingIds.has(`${baseId}-${index}`)) {
+    index += 1
+  }
+
+  return `${baseId}-${index}`
+}
+
+function slugify(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
 }
 
 function getBatchDates(primaryDate: string, additionalDates: string[]): {
