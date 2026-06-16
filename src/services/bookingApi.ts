@@ -223,6 +223,19 @@ export function initAdminApiTokenFromUrl() {
   window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
 }
 
+export function hasAdminApiToken(): boolean {
+  return Boolean(getAdminApiToken())
+}
+
+export function getAdminLoginUrl(): string {
+  const apiUrl = new URL(API_BASE_URL)
+  apiUrl.pathname = apiUrl.pathname.replace(/\/api\/?$/, '/admin/login')
+  apiUrl.search = ''
+  apiUrl.hash = ''
+
+  return apiUrl.toString()
+}
+
 function getRequestHeaders(path: string): Record<string, string> {
   const headers: Record<string, string> = { ...JSON_HEADERS }
   const token = getAdminApiToken()

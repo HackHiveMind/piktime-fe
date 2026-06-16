@@ -10,6 +10,8 @@ import {
   fetchAdminReservations,
   fetchRoomAvailability,
   fetchRooms,
+  getAdminLoginUrl,
+  hasAdminApiToken,
   initAdminApiTokenFromUrl,
   mapApiReservation,
   updateAdminReservation,
@@ -96,6 +98,18 @@ describe('booking api', () => {
     expect(sessionStorage.getItem('ihub-admin-api-token')).toBe('admin-token-123')
     expect(window.location.pathname).toBe('/admin')
     expect(window.location.search).toBe('?view=calendar')
+  })
+
+  it('knows when the admin api token is available', () => {
+    expect(hasAdminApiToken()).toBe(false)
+
+    sessionStorage.setItem('ihub-admin-api-token', 'admin-token-123')
+
+    expect(hasAdminApiToken()).toBe(true)
+  })
+
+  it('builds the admin login URL from the API base URL', () => {
+    expect(getAdminLoginUrl()).toBe('http://127.0.0.1:8000/admin/login')
   })
 
   it('creates an admin room through the backend', async () => {

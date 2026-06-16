@@ -1,8 +1,11 @@
 import { CalendarDays, LayoutDashboard } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
+import { hasAdminApiToken } from '../services/bookingApi'
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const isAdmin = hasAdminApiToken()
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -19,10 +22,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             <CalendarDays size={18} />
             Booking
           </NavLink>
-          <NavLink to="/admin" className={({ isActive }) => (isActive ? 'active' : undefined)}>
-            <LayoutDashboard size={18} />
-            Admin
-          </NavLink>
+          {isAdmin ? (
+            <NavLink to="/admin" className={({ isActive }) => (isActive ? 'active' : undefined)}>
+              <LayoutDashboard size={18} />
+              Admin
+            </NavLink>
+          ) : null}
         </nav>
       </header>
 

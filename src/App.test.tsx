@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { ADMIN_API_TOKEN_STORAGE_KEY } from './services/bookingApi'
 import { getReservations, saveReservations, saveRoomBlocks } from './services/reservationStore'
 import type { Reservation, RoomBlock } from './domain/types'
 
@@ -13,6 +14,7 @@ describe('app routes', () => {
 
   beforeEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
   })
 
   afterEach(() => {
@@ -25,6 +27,12 @@ describe('app routes', () => {
     fireEvent.click(screen.getByRole('button', { name: /iHUB Chisinau/i }))
   }
 
+  const adminEntry = () => {
+    sessionStorage.setItem(ADMIN_API_TOKEN_STORAGE_KEY, 'admin-token-123')
+
+    return '/admin'
+  }
+
   it('renders the public booking interface', () => {
     render(
       <MemoryRouter initialEntries={['/']}>
@@ -34,7 +42,7 @@ describe('app routes', () => {
 
     expect(screen.getByRole('heading', { name: /rezerva o sala/i })).toBeInTheDocument()
     expect(screen.getAllByText('iMEET Room').length).toBeGreaterThan(0)
-    expect(screen.getByRole('link', { name: /admin/i })).toHaveAttribute('href', '/admin')
+    expect(screen.queryByRole('link', { name: /admin/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /09:00Liber/i })).not.toBeInTheDocument()
     expect(screen.queryByLabelText(/^nume$/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /green conference room/i })).toBeInTheDocument()
@@ -201,7 +209,7 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -238,7 +246,7 @@ describe('app routes', () => {
     )
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -289,7 +297,7 @@ describe('app routes', () => {
     )
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -344,7 +352,7 @@ describe('app routes', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -359,7 +367,7 @@ describe('app routes', () => {
         'http://127.0.0.1:8000/api/admin/reservations/backend-reservation',
         expect.objectContaining({
           method: 'DELETE',
-          headers: { Accept: 'application/json' },
+          headers: expect.objectContaining({ Accept: 'application/json' }),
         }),
       )
     })
@@ -408,7 +416,7 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -449,7 +457,7 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -467,7 +475,7 @@ describe('app routes', () => {
     vi.stubGlobal('fetch', mockAdminRoomsApi())
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -501,7 +509,7 @@ describe('app routes', () => {
     vi.stubGlobal('fetch', mockAdminRoomsApi())
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -523,7 +531,7 @@ describe('app routes', () => {
     vi.stubGlobal('fetch', mockAdminRoomsApi())
 
     const { unmount } = render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -541,7 +549,7 @@ describe('app routes', () => {
     cleanup()
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -555,7 +563,7 @@ describe('app routes', () => {
 
   it('filters room resources when admin switches business', () => {
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -584,7 +592,7 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -641,7 +649,7 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -683,7 +691,7 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -717,7 +725,7 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -736,7 +744,7 @@ describe('app routes', () => {
 
   it('lets admin create and remove indefinite room blocks', () => {
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -769,7 +777,7 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -802,7 +810,7 @@ describe('app routes', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/admin/reservations',
       expect.objectContaining({
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        headers: expect.objectContaining({ Accept: 'application/json', 'Content-Type': 'application/json' }),
         method: 'POST',
       }),
     )
@@ -857,7 +865,7 @@ describe('app routes', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -914,7 +922,7 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
@@ -935,7 +943,7 @@ describe('app routes', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/admin/reservations',
       expect.objectContaining({
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        headers: expect.objectContaining({ Accept: 'application/json', 'Content-Type': 'application/json' }),
         method: 'POST',
       }),
     )
@@ -965,7 +973,7 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/admin']}>
+      <MemoryRouter initialEntries={[adminEntry()]}>
         <App />
       </MemoryRouter>,
     )
