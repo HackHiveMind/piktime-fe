@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createAdminReservation,
@@ -8,7 +10,9 @@ import {
   fetchAdminReservations,
   fetchRoomAvailability,
   fetchRooms,
+  initAdminApiTokenFromUrl,
   mapApiReservation,
+  updateAdminReservation,
   updateAdminRoom,
 } from './bookingApi'
 import type { ReservationStatus } from '../domain/types'
@@ -16,6 +20,8 @@ import type { ReservationStatus } from '../domain/types'
 describe('booking api', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    sessionStorage.clear()
+    window.history.replaceState(null, '', '/')
   })
 
   it('loads rooms from the backend', async () => {
@@ -45,6 +51,8 @@ describe('booking api', () => {
   })
 
   it('loads admin rooms with business metadata from the backend', async () => {
+    sessionStorage.setItem('ihub-admin-api-token', 'admin-token-123')
+
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -76,11 +84,23 @@ describe('booking api', () => {
       },
     ])
     expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/admin/rooms', {
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', Authorization: 'Bearer admin-token-123' },
     })
   })
 
+  it('stores the admin login token from the redirect URL and removes it from the address bar', () => {
+    window.history.replaceState(null, '', '/admin?admin_token=admin-token-123&view=calendar')
+
+    initAdminApiTokenFromUrl()
+
+    expect(sessionStorage.getItem('ihub-admin-api-token')).toBe('admin-token-123')
+    expect(window.location.pathname).toBe('/admin')
+    expect(window.location.search).toBe('?view=calendar')
+  })
+
   it('creates an admin room through the backend', async () => {
+    sessionStorage.setItem('ihub-admin-api-token', 'admin-token-123')
+
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -113,7 +133,11 @@ describe('booking api', () => {
       'http://127.0.0.1:8000/api/admin/rooms',
       expect.objectContaining({
         method: 'POST',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer admin-token-123',
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           name: 'Podcast Studio',
           capacity: 4,
@@ -127,6 +151,8 @@ describe('booking api', () => {
   })
 
   it('updates an admin room through the backend', async () => {
+    sessionStorage.setItem('ihub-admin-api-token', 'admin-token-123')
+
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -135,8 +161,8 @@ describe('booking api', () => {
             id: 'imeet',
             name: 'iMEET Room',
             capacity: 8,
-            business_id: 'yellow-conference',
-            location: 'iHUB Yellow Conference',
+            business_id: 'yellow',
+            location: 'iHUB Yellow',
             amenities: [],
             accent: '#74bd45',
           },
@@ -149,12 +175,12 @@ describe('booking api', () => {
         id: 'imeet',
         name: 'iMEET Room',
         capacity: 8,
-        businessId: 'yellow-conference',
-        location: 'iHUB Yellow Conference',
+        businessId: 'yellow',
+        location: 'iHUB Yellow',
         amenities: [],
         accent: '#74bd45',
       }),
-    ).resolves.toMatchObject({ id: 'imeet', businessId: 'yellow-conference' })
+    ).resolves.toMatchObject({ id: 'imeet', businessId: 'yellow' })
     expect(fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/admin/rooms/imeet',
       expect.objectContaining({ method: 'PUT' }),
@@ -283,6 +309,67 @@ describe('booking api', () => {
           phone: '+373 600 00 000',
           status: 'pending',
           notes: 'Admin booking',
+        }),
+      }),
+    )
+  })
+
+  it('updates an admin reservation through the backend', async () => {
+    sessionStorage.setItem('ihub-admin-api-token', 'admin-token-123')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({
+          data: apiReservation({
+            date: '2026-06-17',
+            start_time: '10:30',
+            end_time: '11:30',
+          }),
+        }),
+      ),
+    )
+
+    await expect(
+      updateAdminReservation({
+        id: 'reservation-12',
+        roomId: 'imeet',
+        date: '2026-06-17',
+        startTime: '10:30',
+        endTime: '11:30',
+        firstName: 'Ana',
+        lastName: 'Popescu',
+        email: 'ana@example.com',
+        phone: '+373 600 00 000',
+        status: 'confirmed',
+        notes: '',
+        createdAt: '2026-06-05T12:00:00.000000Z',
+      }),
+    ).resolves.toMatchObject({
+      id: '12',
+      date: '2026-06-17',
+      startTime: '10:30',
+      endTime: '11:30',
+    })
+    expect(fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/api/admin/reservations/reservation-12',
+      expect.objectContaining({
+        method: 'PUT',
+        headers: {
+          Accept: 'application/json',
+          Authorization: 'Bearer admin-token-123',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          room_id: 'imeet',
+          date: '2026-06-17',
+          start_time: '10:30',
+          end_time: '11:30',
+          first_name: 'Ana',
+          last_name: 'Popescu',
+          email: 'ana@example.com',
+          phone: '+373 600 00 000',
+          status: 'confirmed',
+          notes: '',
         }),
       }),
     )

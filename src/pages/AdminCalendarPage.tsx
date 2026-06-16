@@ -13,7 +13,7 @@ import {
   Trash2,
   Users,
 } from 'lucide-react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, DragEvent } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { ReservationForm } from '../components/ReservationForm'
 import { rooms as defaultRooms } from '../data/rooms'
@@ -54,6 +54,7 @@ import {
   deleteAdminReservation,
   fetchAdminRooms,
   fetchAdminReservations,
+  updateAdminReservation,
   updateAdminRoom,
 } from '../services/bookingApi'
 
@@ -93,8 +94,6 @@ const adminSections: Array<{
 ]
 
 const businessResources: BusinessResource[] = [
-  { id: 'yellow-conference', name: 'iHUB Yellow Conference', shortName: 'IH' },
-  { id: 'wfp-conference', name: 'iHUB - WFP Conference', shortName: 'IH' },
   { id: 'chisinau', name: 'iHUB Chisinau', shortName: 'IH' },
   { id: 'yellow', name: 'iHUB Yellow', shortName: 'IH' },
 ]
@@ -411,13 +410,65 @@ export function AdminCalendarPage() {
 
     const reservation =
       modal?.mode === 'edit'
-        ? updateReservation(modal.reservation, formData)
+        ? await updateAdminReservation(updateReservation(modal.reservation, formData))
         : await createAdminReservation(formData)
     const nextReservations = upsertReservation(reservation)
 
     setReservations(nextReservations)
     setModal(null)
     setMessage(modal?.mode === 'edit' ? 'Booking updated.' : 'Booking created.')
+  }
+
+  const handleMoveReservation = async (
+    reservationId: string,
+    move: { date: string; startTime?: string; roomId?: string },
+  ) => {
+    const reservation = reservations.find((item) => item.id === reservationId)
+
+    if (!reservation) {
+      return
+    }
+
+    const duration = timeToMinutes(reservation.endTime) - timeToMinutes(reservation.startTime)
+    const startTime = move.startTime ?? reservation.startTime
+    const movedReservation: Reservation = {
+      ...reservation,
+      date: move.date,
+      startTime,
+      endTime: move.startTime ? addMinutes(startTime, duration) : reservation.endTime,
+      roomId: move.roomId ?? reservation.roomId,
+    }
+
+    if (findConflictingReservation(reservations, movedReservation, reservation.id)) {
+      setMessage('Exista deja o rezervare pentru sala, data si ora selectata.')
+      return
+    }
+
+    if (findConflictingRoomBlock(roomBlocks, movedReservation)) {
+      setMessage('Sala este blocata in intervalul selectat.')
+      return
+    }
+
+    const optimisticReservations = reservations.map((item) =>
+      item.id === reservation.id ? movedReservation : item,
+    )
+    setReservations(optimisticReservations)
+    saveReservations(optimisticReservations)
+
+    try {
+      const savedReservation = await updateAdminReservation(movedReservation)
+      const nextReservations = optimisticReservations.map((item) =>
+        item.id === savedReservation.id ? savedReservation : item,
+      )
+
+      setReservations(nextReservations)
+      saveReservations(nextReservations)
+      setMessage('Booking moved.')
+    } catch (error) {
+      setReservations(reservations)
+      saveReservations(reservations)
+      setMessage(error instanceof Error ? `Booking move failed. ${error.message}` : 'Booking move failed.')
+    }
   }
 
   const handleDeleteReservation = async () => {
@@ -730,6 +781,7 @@ export function AdminCalendarPage() {
             onCreate={openCreateModal}
             onEdit={openEditModal}
             onEditBlock={openBlockModal}
+            onMove={handleMoveReservation}
           />
         ) : null}
 
@@ -1086,6 +1138,7 @@ function CalendarSection({
   onCreate,
   onEdit,
   onEditBlock,
+  onMove,
 }: {
   view: CalendarView
   dates: string[]
@@ -1096,6 +1149,7 @@ function CalendarSection({
   onCreate: (date: string, startTime: string, endTime?: string, roomId?: string) => void
   onEdit: (reservation: Reservation) => void
   onEditBlock: (block: RoomBlock) => void
+  onMove: (reservationId: string, move: { date: string; startTime?: string; roomId?: string }) => void
 }) {
   if (view === 'agenda') {
     return <BookingList rooms={rooms} reservations={reservations} onEdit={onEdit} />
@@ -1115,9 +1169,16 @@ function CalendarSection({
                   <Plus size={14} />
                 </button>
               </div>
-              {dayReservations.slice(0, 3).map((reservation) => (
-                <ReservationChip key={reservation.id} rooms={rooms} reservation={reservation} onEdit={onEdit} />
-              ))}
+              <div
+                className="booking-drop-zone"
+                aria-label={`Move booking to ${date}`}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => handleReservationDrop(event, (reservationId) => onMove(reservationId, { date }))}
+              >
+                {dayReservations.slice(0, 3).map((reservation) => (
+                  <ReservationChip key={reservation.id} rooms={rooms} reservation={reservation} onEdit={onEdit} />
+                ))}
+              </div>
               {dayReservations.length > 3 ? <small>+{dayReservations.length - 3} more</small> : null}
             </article>
           )
@@ -1137,6 +1198,7 @@ function CalendarSection({
         onCreate={onCreate}
         onEdit={onEdit}
         onEditBlock={onEditBlock}
+        onMove={onMove}
       />
     )
   }
@@ -1160,6 +1222,7 @@ function CalendarSection({
             rooms={rooms}
             onCreate={onCreate}
             onEdit={onEdit}
+            onMove={onMove}
           />
         ))}
       </div>
@@ -1176,6 +1239,7 @@ function DailyResourceCalendar({
   onCreate,
   onEdit,
   onEditBlock,
+  onMove,
 }: {
   date: string
   roomFilter: string
@@ -1185,6 +1249,7 @@ function DailyResourceCalendar({
   onCreate: (date: string, startTime: string, endTime?: string, roomId?: string) => void
   onEdit: (reservation: Reservation) => void
   onEditBlock: (block: RoomBlock) => void
+  onMove: (reservationId: string, move: { date: string; startTime?: string; roomId?: string }) => void
 }) {
   const [dragSelection, setDragSelection] = useState<{
     roomId: string
@@ -1244,6 +1309,7 @@ function DailyResourceCalendar({
             onBeginSelection={beginSelection}
             onUpdateSelection={updateSelection}
             onFinishSelection={finishSelection}
+            onMove={onMove}
           />
         ))}
       </div>
@@ -1263,6 +1329,7 @@ function DailyResourceRow({
   onBeginSelection,
   onUpdateSelection,
   onFinishSelection,
+  onMove,
 }: {
   date: string
   slot: { value: string; label: string; isBookable: boolean }
@@ -1275,6 +1342,7 @@ function DailyResourceRow({
   onBeginSelection: (roomId: string, startTime: string) => void
   onUpdateSelection: (roomId: string, endTime: string) => void
   onFinishSelection: (roomId: string, endTime: string) => void
+  onMove: (reservationId: string, move: { date: string; startTime?: string; roomId?: string }) => void
 }) {
   return (
     <>
@@ -1301,6 +1369,12 @@ function DailyResourceRow({
             className={`daily-resource-cell ${
               selectionRange && isSlotInSelection(selectionRange, slot.value) ? 'selecting' : ''
             }`}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) =>
+              handleReservationDrop(event, (reservationId) =>
+                onMove(reservationId, { date, startTime: slot.value, roomId: room.id }),
+              )
+            }
           >
             {isSelectionStart ? (
               <span className="selection-time-label">
@@ -1368,6 +1442,8 @@ function ReservationBlock({
     <button
       type="button"
       className={`daily-reservation-block status-${reservation.status}`}
+      draggable
+      onDragStart={(event) => handleReservationDragStart(event, reservation.id)}
       onClick={() => onEdit(reservation)}
     >
       <span>
@@ -1387,6 +1463,7 @@ function CalendarRow({
   reservations,
   onCreate,
   onEdit,
+  onMove,
 }: {
   slotStart: string
   days: string[]
@@ -1394,6 +1471,7 @@ function CalendarRow({
   reservations: Reservation[]
   onCreate: (date: string, startTime: string, endTime?: string, roomId?: string) => void
   onEdit: (reservation: Reservation) => void
+  onMove: (reservationId: string, move: { date: string; startTime?: string; roomId?: string }) => void
 }) {
   return (
     <>
@@ -1404,7 +1482,16 @@ function CalendarRow({
         )
 
         return (
-          <div key={`${day}-${slotStart}`} className="calendar-cell">
+          <div
+            key={`${day}-${slotStart}`}
+            className="calendar-cell"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) =>
+              handleReservationDrop(event, (reservationId) =>
+                onMove(reservationId, { date: day, startTime: slotStart }),
+              )
+            }
+          >
             {cellReservations.map((reservation) => (
               <ReservationChip key={reservation.id} rooms={rooms} reservation={reservation} onEdit={onEdit} />
             ))}
@@ -1439,6 +1526,8 @@ function ReservationChip({
       type="button"
       className={`reservation-chip status-${reservation.status}`}
       style={{ '--room-accent': room.accent } as CSSProperties}
+      draggable
+      onDragStart={(event) => handleReservationDragStart(event, reservation.id)}
       onClick={() => onEdit(reservation)}
     >
       <strong>
@@ -1448,6 +1537,21 @@ function ReservationChip({
       <small>{getStatusLabel(reservation.status)}</small>
     </button>
   )
+}
+
+function handleReservationDragStart(event: DragEvent<HTMLElement>, reservationId: string) {
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', reservationId)
+}
+
+function handleReservationDrop(event: DragEvent<HTMLElement>, onDrop: (reservationId: string) => void) {
+  event.preventDefault()
+
+  const reservationId = event.dataTransfer.getData('text/plain')
+
+  if (reservationId) {
+    onDrop(reservationId)
+  }
 }
 
 function BookingList({
@@ -1779,11 +1883,11 @@ function getDefaultBusinessId(room: Room): string {
   }
 
   if (room.id === 'yellow-conference') {
-    return 'yellow-conference'
+    return 'yellow'
   }
 
   if (room.id === 'green-conference') {
-    return 'wfp-conference'
+    return 'chisinau'
   }
 
   return 'chisinau'
