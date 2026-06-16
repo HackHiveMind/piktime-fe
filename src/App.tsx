@@ -1,7 +1,7 @@
 import { Route, Routes } from 'react-router-dom'
 import { AppShell } from './components/AppShell'
 import { AdminCalendarPage } from './pages/AdminCalendarPage'
-import { RoomBookingFormPage, RoomSlotsPage, UserBookingPage } from './pages/UserBookingPage'
+import { UserBookingPage } from './pages/UserBookingPage'
 import './styles.css'
 
 export default function App() {
@@ -9,8 +9,6 @@ export default function App() {
     <AppShell>
       <Routes>
         <Route path="/" element={<UserBookingPage />} />
-        <Route path="/rooms/:roomId" element={<RoomSlotsPage />} />
-        <Route path="/rooms/:roomId/book" element={<RoomBookingFormPage />} />
         <Route path="/admin" element={<AdminCalendarPage />} />
       </Routes>
     </AppShell>

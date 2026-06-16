@@ -36,6 +36,7 @@ describe('app routes', () => {
     expect(screen.getAllByText('iMEET Room').length).toBeGreaterThan(0)
     expect(screen.getByRole('link', { name: /admin/i })).toHaveAttribute('href', '/admin')
     expect(screen.queryByRole('button', { name: /09:00Liber/i })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/^nume$/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /green conference room/i })).toBeInTheDocument()
   })
 
@@ -55,7 +56,7 @@ describe('app routes', () => {
     expect(roomButtons[1]).toContain('Yellow Conference Room')
   })
 
-  it('opens a room slots page after selecting a public room card', async () => {
+  it('shows slots and the reservation form on the same page after selecting a public room card', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
         <App />
@@ -64,22 +65,12 @@ describe('app routes', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /iMEET Room/i }))
 
-    expect(await screen.findByRole('heading', { name: /sloturi disponibile/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /toate salile/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /iMEET Room/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /09:00Liber/i })).toBeInTheDocument()
-  })
-
-  it('opens the booking form page after selecting a public slot', async () => {
-    render(
-      <MemoryRouter initialEntries={['/rooms/imeet?date=2026-06-01']}>
-        <App />
-      </MemoryRouter>,
-    )
-
-    fireEvent.click(await screen.findByRole('button', { name: /09:00Liber/i }))
-
-    expect(await screen.findByRole('heading', { name: /finalizeaza rezervarea/i })).toBeInTheDocument()
-    expect(screen.getByDisplayValue('2026-06-01')).toBeInTheDocument()
+    expect(screen.getByLabelText(/^nume$/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/prenume/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/email/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/telefon/i)).toBeInTheDocument()
   })
 
   it('submits a public booking to the backend api', async () => {
@@ -124,11 +115,13 @@ describe('app routes', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(
-      <MemoryRouter initialEntries={['/rooms/imeet/book?date=2026-06-01&time=09:00']}>
+      <MemoryRouter initialEntries={['/']}>
         <App />
       </MemoryRouter>,
     )
 
+    fireEvent.click(await screen.findByRole('button', { name: /iMEET Room/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /09:00Liber/i }))
     fireEvent.change(screen.getByLabelText(/^nume$/i), { target: { value: 'Popescu' } })
     fireEvent.change(screen.getByLabelText(/prenume/i), { target: { value: 'Ana' } })
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'ana@example.com' } })
@@ -165,11 +158,13 @@ describe('app routes', () => {
     )
 
     render(
-      <MemoryRouter initialEntries={['/rooms/imeet/book?date=2026-06-01&time=09:00']}>
+      <MemoryRouter initialEntries={['/']}>
         <App />
       </MemoryRouter>,
     )
 
+    fireEvent.click(await screen.findByRole('button', { name: /iMEET Room/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /09:00Liber/i }))
     fireEvent.click(screen.getByRole('button', { name: /confirma rezervarea/i }))
 
     expect(screen.getByText(/Completeaza numele/i)).toBeInTheDocument()
@@ -185,11 +180,12 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/rooms/imeet?date=2026-06-16']}>
+      <MemoryRouter initialEntries={['/']}>
         <App />
       </MemoryRouter>,
     )
 
+    fireEvent.click(screen.getByRole('button', { name: /iMEET Room/i }))
     expect(await screen.findByRole('button', { name: /13:00Blocat/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /14:30Blocat/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /15:00Liber/i })).not.toBeDisabled()
