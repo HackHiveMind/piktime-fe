@@ -82,6 +82,48 @@ describe('app routes', () => {
     expect(screen.getByLabelText(/telefon/i)).toBeInTheDocument()
   })
 
+  it('loads availability only for the selected public room on the room booking page', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith('/api/rooms')) {
+        return jsonResponse({
+          data: [
+            { id: 'imeet', name: 'iMEET Room', capacity: 8 },
+            { id: 'loft', name: 'Loft Room', capacity: 8 },
+            { id: 'yellow-conference', name: 'Yellow Conference Room', capacity: 30 },
+          ],
+        })
+      }
+
+      return jsonResponse({
+        data: {
+          room_id: 'imeet',
+          date: '2026-06-01',
+          slots: [{ start: '09:00', end: '10:00', label: '09:00 - 10:00', available: true }],
+        },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/rooms/imeet?date=2026-06-01']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByRole('button', { name: /09:00Liber/i })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.filter(([url]) =>
+          String(url).includes('/api/rooms/imeet/availability'),
+        ).length,
+      ).toBeGreaterThanOrEqual(1)
+    })
+
+    const requestedUrls = fetchMock.mock.calls.map(([url]) => String(url))
+    expect(requestedUrls.some((url) => url.includes('/api/rooms/loft/availability'))).toBe(false)
+    expect(requestedUrls.some((url) => url.includes('/api/rooms/yellow-conference/availability'))).toBe(false)
+  })
+
   it('submits a public booking to the backend api', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith('/api/rooms')) {

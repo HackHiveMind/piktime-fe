@@ -81,7 +81,7 @@ export function RoomBookingPage() {
     roomBlocks,
     message,
     setMessage,
-  } = usePublicBookingData(date)
+  } = usePublicBookingData(date, roomId)
   const room = findRoom(rooms, roomId)
   const [selectedSlot, setSelectedSlot] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -222,6 +222,7 @@ export function RoomBookingPage() {
         <ReservationForm
           value={formData}
           submitLabel={isSubmitting ? 'Se salveaza...' : 'Confirma rezervarea'}
+          disabled={isSubmitting}
           onChange={setFormData}
           onSubmit={handleSubmit}
         />
@@ -263,7 +264,7 @@ function BookingHero({
   )
 }
 
-function usePublicBookingData(date: string) {
+function usePublicBookingData(date: string, availabilityRoomId?: string) {
   const [rooms, setRooms] = useState<Room[]>(fallbackRooms)
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [availability, setAvailability] = useState<Record<string, AvailabilitySlot[]>>({})
@@ -293,8 +294,12 @@ function usePublicBookingData(date: string) {
   useEffect(() => {
     let isMounted = true
 
+    const roomsForAvailability = availabilityRoomId
+      ? rooms.filter((room) => room.id === availabilityRoomId)
+      : rooms
+
     Promise.all(
-      rooms.map((room) =>
+      roomsForAvailability.map((room) =>
         fetchRoomAvailability(room.id, date).then((roomAvailability) => [
           room.id,
           roomAvailability.slots,
@@ -315,7 +320,7 @@ function usePublicBookingData(date: string) {
     return () => {
       isMounted = false
     }
-  }, [date, rooms])
+  }, [availabilityRoomId, date, rooms])
 
   return {
     rooms,
