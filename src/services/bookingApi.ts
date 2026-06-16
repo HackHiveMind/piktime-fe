@@ -6,6 +6,7 @@ const API_BASE_URL = normalizeApiBaseUrl(
 const JSON_HEADERS = {
   Accept: 'application/json',
 }
+export const ADMIN_API_TOKEN_STORAGE_KEY = 'ihub-admin-api-token'
 
 export type ApiRoom = {
   id: string
@@ -122,6 +123,15 @@ export async function createAdminReservation(
   return mapApiReservation(response.data)
 }
 
+export async function updateAdminReservation(reservation: Reservation): Promise<Reservation> {
+  const response = await putJson<{ data: ApiReservation }>(
+    `/admin/reservations/${reservation.id}`,
+    reservationToApiPayload(reservation),
+  )
+
+  return mapApiReservation(response.data)
+}
+
 export async function fetchAdminReservations(): Promise<Reservation[]> {
   const response = await getJson<{ data: ApiReservation[] }>('/admin/reservations')
 
@@ -131,7 +141,7 @@ export async function fetchAdminReservations(): Promise<Reservation[]> {
 export async function deleteAdminReservation(reservationId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/admin/reservations/${reservationId}`, {
     method: 'DELETE',
-    headers: JSON_HEADERS,
+    headers: getRequestHeaders('/admin/reservations'),
   })
 
   if (!response.ok) {
@@ -170,7 +180,7 @@ export function mapApiRoom(room: ApiRoom): Room {
 
 async function getJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: JSON_HEADERS,
+    headers: getRequestHeaders(path),
   })
 
   return parseJsonResponse<T>(response)
@@ -179,7 +189,7 @@ async function getJson<T>(path: string): Promise<T> {
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'POST',
-    headers: { ...JSON_HEADERS, 'Content-Type': 'application/json' },
+    headers: { ...getRequestHeaders(path), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
 
@@ -189,11 +199,47 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 async function putJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: 'PUT',
-    headers: { ...JSON_HEADERS, 'Content-Type': 'application/json' },
+    headers: { ...getRequestHeaders(path), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
 
   return parseJsonResponse<T>(response)
+}
+
+export function initAdminApiTokenFromUrl() {
+  if (typeof window === 'undefined' || typeof sessionStorage === 'undefined') {
+    return
+  }
+
+  const url = new URL(window.location.href)
+  const token = url.searchParams.get('admin_token')
+
+  if (!token) {
+    return
+  }
+
+  sessionStorage.setItem(ADMIN_API_TOKEN_STORAGE_KEY, token)
+  url.searchParams.delete('admin_token')
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+}
+
+function getRequestHeaders(path: string): Record<string, string> {
+  const headers: Record<string, string> = { ...JSON_HEADERS }
+  const token = getAdminApiToken()
+
+  if (path.startsWith('/admin/') && token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  return headers
+}
+
+function getAdminApiToken(): string | null {
+  if (typeof sessionStorage === 'undefined') {
+    return null
+  }
+
+  return sessionStorage.getItem(ADMIN_API_TOKEN_STORAGE_KEY)
 }
 
 function roomToApiPayload(room: Room) {
@@ -204,6 +250,21 @@ function roomToApiPayload(room: Room) {
     location: room.location,
     amenities: room.amenities,
     accent: room.accent,
+  }
+}
+
+function reservationToApiPayload(reservation: Reservation | ReservationFormData) {
+  return {
+    room_id: reservation.roomId,
+    date: reservation.date,
+    start_time: reservation.startTime,
+    end_time: reservation.endTime,
+    first_name: reservation.firstName,
+    last_name: reservation.lastName,
+    email: reservation.email,
+    phone: reservation.phone,
+    status: reservation.status,
+    notes: reservation.notes,
   }
 }
 

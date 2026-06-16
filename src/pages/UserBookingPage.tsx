@@ -1,7 +1,8 @@
-import { CalendarCheck, CheckCircle2, MapPin, Users } from 'lucide-react'
-import type { CSSProperties } from 'react'
+import { CalendarCheck, CheckCircle2, ChevronLeft } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ReservationForm } from '../components/ReservationForm'
+import { RoomCard } from '../components/RoomCard'
 import { SlotPicker } from '../components/SlotPicker'
 import { rooms as fallbackRooms } from '../data/rooms'
 import {
@@ -19,35 +20,301 @@ import {
 import { getRoomBlocks } from '../services/reservationStore'
 
 const today = new Date().toISOString().slice(0, 10)
-const orderedFallbackRooms = orderConferenceRoomsFirst(fallbackRooms)
 
 export function UserBookingPage() {
+  const navigate = useNavigate()
   const [date, setDate] = useState(today)
+  const { rooms, availability, reservations, roomBlocks, message } = usePublicBookingData(date)
+  const orderedRooms = useMemo(() => orderConferenceRoomsFirst(rooms), [rooms])
+  const availableCounts = useAvailableCounts(orderedRooms, availability, reservations, roomBlocks, date)
+
+  return (
+    <div className="page-stack">
+      <BookingHero
+        title="Rezerva o sala"
+        description="Alege data si sala. Sloturile de timp apar pe pagina salii selectate."
+        date={date}
+        onDateChange={setDate}
+      />
+
+      <section className="room-directory">
+        <div className="section-heading-row room-picker-heading">
+          <h2>Alege sala</h2>
+          <span>{orderedRooms.length} sali</span>
+        </div>
+        <div className="room-list room-list-grid" aria-label="Sali disponibile">
+          {orderedRooms.map((room) => (
+            <RoomCard
+              key={room.id}
+              room={room}
+              selected={false}
+              availableCount={availableCounts.get(room.id) ?? 0}
+              onSelect={() => navigate(`/rooms/${room.id}?date=${date}`)}
+            />
+          ))}
+        </div>
+        {message ? (
+          <p className="status-message">
+            <CheckCircle2 size={18} />
+            {message}
+          </p>
+        ) : null}
+      </section>
+    </div>
+  )
+}
+
+export function RoomSlotsPage() {
+  const { roomId = '' } = useParams()
+  const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [date, setDate] = useState(searchParams.get('date') || today)
+  const { rooms, availability, reservations, roomBlocks, message } = usePublicBookingData(date)
+  const room = findRoom(rooms, roomId)
+
+  const handleDateChange = (nextDate: string) => {
+    setDate(nextDate)
+    setSearchParams({ date: nextDate })
+  }
+
+  const handleSlotSelect = (slot: TimeSlot) => {
+    navigate(`/rooms/${roomId}/book?date=${date}&time=${slot.start}`)
+  }
+
+  if (!room) {
+    return (
+      <div className="page-stack">
+        <BookingHero
+          title="Sala nu a fost gasita"
+          description="Alege o sala disponibila din lista."
+          date={date}
+          onDateChange={handleDateChange}
+        />
+        <Link className="text-button page-back-link" to="/">
+          <ChevronLeft size={18} />
+          Inapoi la sali
+        </Link>
+      </div>
+    )
+  }
+
+  return (
+    <div className="page-stack">
+      <BookingHero
+        title={room.name}
+        description="Alege un slot disponibil. Dupa selectare vei merge la formularul de rezervare."
+        date={date}
+        onDateChange={handleDateChange}
+      />
+
+      <section className="booking-panel slot-page-panel">
+        <div className="panel-heading">
+          <div>
+            <Link className="text-button page-back-link" to="/">
+              <ChevronLeft size={18} />
+              Toate salile
+            </Link>
+            <span className="eyebrow">{room.location}</span>
+            <h2>Sloturi disponibile</h2>
+          </div>
+          <CalendarCheck size={28} />
+        </div>
+
+        <SlotPicker
+          roomId={room.id}
+          date={date}
+          reservations={reservations}
+          roomBlocks={roomBlocks}
+          slots={availability[room.id]}
+          selectedSlot=""
+          onSelectSlot={handleSlotSelect}
+        />
+
+        {message ? (
+          <p className="status-message">
+            <CheckCircle2 size={18} />
+            {message}
+          </p>
+        ) : null}
+      </section>
+    </div>
+  )
+}
+
+export function RoomBookingFormPage() {
+  const { roomId = '' } = useParams()
+  const [searchParams] = useSearchParams()
+  const date = searchParams.get('date') || today
+  const startTime = searchParams.get('time') || ''
+  const { rooms, reservations, roomBlocks, setReservations, setAvailability, message, setMessage } =
+    usePublicBookingData(date)
+  const room = findRoom(rooms, roomId)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState<ReservationFormData>(() =>
+    emptyFormData(roomId, date, startTime),
+  )
+  const selectedSlot = getPublicBookingSlots().find((slot) => slot.start === startTime)
+
+  useEffect(() => {
+    setFormData((current) => ({
+      ...current,
+      roomId,
+      date,
+      startTime,
+      endTime: selectedSlot?.end,
+    }))
+  }, [date, roomId, selectedSlot?.end, startTime])
+
+  const handleSubmit = async () => {
+    if (!room) {
+      setMessage('Alege o sala inainte de confirmare.')
+      return
+    }
+
+    if (!formData.startTime) {
+      setMessage('Alege un slot disponibil inainte de confirmare.')
+      return
+    }
+
+    const validationMessage = getReservationValidationMessage(formData)
+    if (validationMessage) {
+      setMessage(validationMessage)
+      return
+    }
+
+    if (findConflictingReservation(reservations, formData)) {
+      setMessage('Slotul a fost deja rezervat. Alege alta ora.')
+      return
+    }
+
+    if (
+      findConflictingRoomBlock(roomBlocks, {
+        roomId: formData.roomId,
+        startTime: formData.startTime,
+        endTime: formData.endTime ?? formData.startTime,
+      })
+    ) {
+      setMessage('Slotul este blocat de admin. Alege alta ora.')
+      return
+    }
+
+    setIsSubmitting(true)
+
+    try {
+      const reservation = await createPublicReservation(formData)
+      setReservations((current) => [reservation, ...current])
+      setAvailability((current) => ({
+        ...current,
+        [reservation.roomId]: (current[reservation.roomId] ?? []).map((slot) =>
+          slot.start === reservation.startTime ? { ...slot, available: false } : slot,
+        ),
+      }))
+      setMessage(`Rezervare confirmata pentru ${room.name}, ora ${reservation.startTime}.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Rezervarea nu a putut fi salvata.')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  if (!room) {
+    return (
+      <div className="page-stack">
+        <BookingHero
+          title="Sala nu a fost gasita"
+          description="Alege o sala disponibila din lista."
+          date={date}
+          onDateChange={() => undefined}
+        />
+        <Link className="text-button page-back-link" to="/">
+          <ChevronLeft size={18} />
+          Inapoi la sali
+        </Link>
+      </div>
+    )
+  }
+
+  return (
+    <div className="page-stack">
+      <BookingHero
+        title="Finalizeaza rezervarea"
+        description={`${room.name}, ${date}, ora ${startTime || 'neselectata'}.`}
+        date={date}
+        onDateChange={() => undefined}
+      />
+
+      <section className="booking-panel booking-form-page">
+        <div className="panel-heading">
+          <div>
+            <Link className="text-button page-back-link" to={`/rooms/${room.id}?date=${date}`}>
+              <ChevronLeft size={18} />
+              Inapoi la sloturi
+            </Link>
+            <span className="eyebrow">{room.location}</span>
+            <h2>{room.name}</h2>
+          </div>
+          <CalendarCheck size={28} />
+        </div>
+
+        <ReservationForm
+          value={formData}
+          submitLabel={isSubmitting ? 'Se salveaza...' : 'Confirma rezervarea'}
+          onChange={setFormData}
+          onSubmit={handleSubmit}
+        />
+
+        {message ? (
+          <p className="status-message">
+            <CheckCircle2 size={18} />
+            {message}
+          </p>
+        ) : null}
+      </section>
+    </div>
+  )
+}
+
+function BookingHero({
+  title,
+  description,
+  date,
+  onDateChange,
+}: {
+  title: string
+  description: string
+  date: string
+  onDateChange: (date: string) => void
+}) {
+  return (
+    <section className="hero-band">
+      <div>
+        <span className="eyebrow">Booking sali conferinta</span>
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      <label className="date-control">
+        Data rezervarii
+        <input type="date" value={date} onChange={(event) => onDateChange(event.target.value)} />
+      </label>
+    </section>
+  )
+}
+
+function usePublicBookingData(date: string) {
   const [rooms, setRooms] = useState<Room[]>(fallbackRooms)
-  const [selectedRoomId, setSelectedRoomId] = useState(orderedFallbackRooms[0].id)
-  const [selectedSlot, setSelectedSlot] = useState('')
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [availability, setAvailability] = useState<Record<string, AvailabilitySlot[]>>({})
   const [roomBlocks] = useState<RoomBlock[]>(() => getRoomBlocks())
   const [message, setMessage] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [formData, setFormData] = useState<ReservationFormData>(() =>
-    emptyFormData(orderedFallbackRooms[0].id, today, ''),
-  )
-
-  const orderedRooms = useMemo(() => orderConferenceRoomsFirst(rooms), [rooms])
-  const selectedRoom = orderedRooms.find((room) => room.id === selectedRoomId) ?? orderedRooms[0] ?? orderedFallbackRooms[0]
 
   useEffect(() => {
     let isMounted = true
 
     fetchRooms()
       .then((apiRooms) => {
-        if (!isMounted) {
-          return
+        if (isMounted) {
+          setRooms(apiRooms.map(mergeRoomMetadata))
         }
-
-        setRooms(apiRooms.map(mergeRoomMetadata))
       })
       .catch(() => {
         if (isMounted) {
@@ -59,16 +326,6 @@ export function UserBookingPage() {
       isMounted = false
     }
   }, [])
-
-  useEffect(() => {
-    if (orderedRooms.some((room) => room.id === selectedRoomId)) {
-      return
-    }
-
-    const nextRoomId = orderedRooms[0]?.id ?? orderedFallbackRooms[0].id
-    setSelectedRoomId(nextRoomId)
-    setFormData((current) => ({ ...current, roomId: nextRoomId }))
-  }, [orderedRooms, selectedRoomId])
 
   useEffect(() => {
     let isMounted = true
@@ -97,9 +354,28 @@ export function UserBookingPage() {
     }
   }, [date, rooms])
 
-  const availableCounts = useMemo(() => {
+  return {
+    rooms,
+    reservations,
+    setReservations,
+    availability,
+    setAvailability,
+    roomBlocks,
+    message,
+    setMessage,
+  }
+}
+
+function useAvailableCounts(
+  rooms: Room[],
+  availability: Record<string, AvailabilitySlot[]>,
+  reservations: Reservation[],
+  roomBlocks: RoomBlock[],
+  date: string,
+) {
+  return useMemo(() => {
     return new Map(
-      orderedRooms.map((room) => [
+      rooms.map((room) => [
         room.id,
         (availability[room.id] ?? getPublicBookingSlots().map((slot) => ({ ...slot, available: true }))).filter(
           (slot) =>
@@ -118,173 +394,7 @@ export function UserBookingPage() {
         ).length,
       ]),
     )
-  }, [availability, date, orderedRooms, reservations, roomBlocks])
-
-  const selectedAvailableCount = availableCounts.get(selectedRoom.id) ?? 0
-
-  const handleRoomSelect = (roomId: string) => {
-    setSelectedRoomId(roomId)
-    setSelectedSlot('')
-    setMessage('')
-    setFormData((current) => ({ ...current, roomId, date, startTime: '', endTime: undefined }))
-  }
-
-  const handleSlotSelect = (slot: TimeSlot) => {
-    setSelectedSlot(slot.start)
-    setMessage('')
-    setFormData((current) => ({
-      ...current,
-      roomId: selectedRoom.id,
-      date,
-      startTime: slot.start,
-      endTime: slot.end,
-    }))
-  }
-
-  const handleDateChange = (nextDate: string) => {
-    setDate(nextDate)
-    setSelectedSlot('')
-    setMessage('')
-    setFormData((current) => ({ ...current, date: nextDate, startTime: '', endTime: undefined }))
-  }
-
-  const handleSubmit = async () => {
-    if (!formData.startTime) {
-      setMessage('Alege un slot disponibil inainte de confirmare.')
-      return
-    }
-
-    const validationMessage = getReservationValidationMessage(formData)
-    if (validationMessage) {
-      setMessage(validationMessage)
-      return
-    }
-
-    const conflict = findConflictingReservation(reservations, formData)
-    if (conflict) {
-      setMessage('Slotul a fost deja rezervat. Alege alta ora.')
-      return
-    }
-
-    const blockConflict = findConflictingRoomBlock(roomBlocks, {
-      roomId: formData.roomId,
-      startTime: formData.startTime,
-      endTime: formData.endTime ?? formData.startTime,
-    })
-    if (blockConflict) {
-      setMessage('Slotul este blocat de admin. Alege alta ora.')
-      return
-    }
-
-    setIsSubmitting(true)
-
-    try {
-      const reservation = await createPublicReservation(formData)
-      setReservations((current) => [reservation, ...current])
-      setAvailability((current) => ({
-        ...current,
-        [reservation.roomId]: (current[reservation.roomId] ?? []).map((slot) =>
-          slot.start === reservation.startTime ? { ...slot, available: false } : slot,
-        ),
-      }))
-      setSelectedSlot('')
-      setFormData(emptyFormData(selectedRoom.id, date, ''))
-      setMessage(`Rezervare confirmata pentru ${selectedRoom.name}, ora ${reservation.startTime}.`)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Rezervarea nu a putut fi salvata.')
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  return (
-    <div className="page-stack">
-      <section className="hero-band">
-        <div>
-          <span className="eyebrow">Booking sali conferinta</span>
-          <h1>Rezerva o sala</h1>
-          <p>
-            Alege data, sala si un slot de o ora intre 09:00 si 21:00. Nu ai nevoie
-            de cont pentru prima versiune iHUB.
-          </p>
-        </div>
-        <label className="date-control">
-          Data rezervarii
-          <input type="date" value={date} onChange={(event) => handleDateChange(event.target.value)} />
-        </label>
-      </section>
-
-      <section className="content-grid">
-        <div className="room-select-panel">
-          <label className="room-select-control">
-            Alege sala
-            <select value={selectedRoomId} onChange={(event) => handleRoomSelect(event.target.value)}>
-              {orderedRooms.map((room) => (
-                <option key={room.id} value={room.id}>
-                  {room.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <div className="selected-room-summary" style={{ '--room-accent': selectedRoom.accent } as CSSProperties}>
-            <span className="room-card-accent" />
-            <span className="room-card-title">{selectedRoom.name}</span>
-            <span className="room-card-meta">
-              <span>
-                <Users size={16} />
-                {selectedRoom.capacity} persoane
-              </span>
-              <span>
-                <MapPin size={16} />
-                {selectedRoom.location}
-              </span>
-            </span>
-            <span className="amenity-row">
-              {selectedRoom.amenities.map((amenity) => (
-                <span key={amenity}>{amenity}</span>
-              ))}
-            </span>
-            <span className="availability-pill">{selectedAvailableCount} sloturi libere</span>
-          </div>
-        </div>
-
-        <div className="booking-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="eyebrow">{selectedRoom.location}</span>
-              <h2>{selectedRoom.name}</h2>
-            </div>
-            <CalendarCheck size={28} />
-          </div>
-
-          <SlotPicker
-            roomId={selectedRoom.id}
-            date={date}
-            reservations={reservations}
-            roomBlocks={roomBlocks}
-            slots={availability[selectedRoom.id]}
-            selectedSlot={selectedSlot}
-            onSelectSlot={handleSlotSelect}
-          />
-
-          <ReservationForm
-            value={formData}
-            submitLabel={isSubmitting ? 'Se salveaza...' : 'Confirma rezervarea'}
-            onChange={setFormData}
-            onSubmit={handleSubmit}
-          />
-
-          {message ? (
-            <p className="status-message">
-              <CheckCircle2 size={18} />
-              {message}
-            </p>
-          ) : null}
-        </div>
-      </section>
-    </div>
-  )
+  }, [availability, date, reservations, roomBlocks, rooms])
 }
 
 function getReservationValidationMessage(formData: ReservationFormData): string {
@@ -309,6 +419,10 @@ function getReservationValidationMessage(formData: ReservationFormData): string 
   }
 
   return ''
+}
+
+function findRoom(rooms: Room[], roomId: string): Room | undefined {
+  return rooms.find((room) => room.id === roomId) ?? fallbackRooms.find((room) => room.id === roomId)
 }
 
 function mergeRoomMetadata(room: Room): Room {
@@ -345,10 +459,13 @@ function isConferenceRoom(room: Room): boolean {
 }
 
 function emptyFormData(roomId: string, date: string, startTime: string): ReservationFormData {
+  const endTime = getPublicBookingSlots().find((slot) => slot.start === startTime)?.end
+
   return {
     roomId,
     date,
     startTime,
+    endTime,
     firstName: '',
     lastName: '',
     email: '',
