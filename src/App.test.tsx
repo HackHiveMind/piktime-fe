@@ -56,7 +56,7 @@ describe('app routes', () => {
     expect(roomButtons[1]).toContain('Yellow Conference Room')
   })
 
-  it('shows slots and the reservation form on the same page after selecting a public room card', async () => {
+  it('redirects to the room booking page with slots and the full form after selecting a public room card', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
         <App />
@@ -65,7 +65,8 @@ describe('app routes', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /iMEET Room/i }))
 
-    expect(await screen.findByRole('heading', { name: /iMEET Room/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: /iMEET Room/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /toate salile/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /09:00Liber/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/^nume$/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/prenume/i)).toBeInTheDocument()
@@ -115,12 +116,11 @@ describe('app routes', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter initialEntries={['/rooms/imeet?date=2026-06-01']}>
         <App />
       </MemoryRouter>,
     )
 
-    fireEvent.click(await screen.findByRole('button', { name: /iMEET Room/i }))
     fireEvent.click(await screen.findByRole('button', { name: /09:00Liber/i }))
     fireEvent.change(screen.getByLabelText(/^nume$/i), { target: { value: 'Popescu' } })
     fireEvent.change(screen.getByLabelText(/prenume/i), { target: { value: 'Ana' } })
@@ -158,16 +158,15 @@ describe('app routes', () => {
     )
 
     render(
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter initialEntries={['/rooms/imeet?date=2026-06-01']}>
         <App />
       </MemoryRouter>,
     )
 
-    fireEvent.click(await screen.findByRole('button', { name: /iMEET Room/i }))
     fireEvent.click(await screen.findByRole('button', { name: /09:00Liber/i }))
     fireEvent.click(screen.getByRole('button', { name: /confirma rezervarea/i }))
 
-    expect(screen.getByText(/Completeaza numele/i)).toBeInTheDocument()
+    expect(screen.getByText('Completeaza numele.')).toBeInTheDocument()
   })
 
   it('marks user slots blocked by admin room blocks as unavailable', async () => {
@@ -180,12 +179,11 @@ describe('app routes', () => {
     ])
 
     render(
-      <MemoryRouter initialEntries={['/']}>
+      <MemoryRouter initialEntries={['/rooms/imeet?date=2026-06-16']}>
         <App />
       </MemoryRouter>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /iMEET Room/i }))
     expect(await screen.findByRole('button', { name: /13:00Blocat/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /14:30Blocat/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /15:00Liber/i })).not.toBeDisabled()
