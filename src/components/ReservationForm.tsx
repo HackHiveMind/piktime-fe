@@ -72,7 +72,7 @@ export function ReservationForm({
             type="email"
             value={value.email}
             onChange={(event) => updateField('email', event.target.value)}
-            placeholder="ana@example.com"
+            placeholder="ana@gmail.com"
           />
         </label>
         <label>
