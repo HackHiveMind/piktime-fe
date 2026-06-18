@@ -609,6 +609,32 @@ describe('app routes', () => {
     )
   })
 
+  it('lets admin delete a room image from the rooms section', async () => {
+    const fetchMock = mockAdminRoomsApi()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    switchToChisinau()
+    fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /delete photo for iMEET Room/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Room image updated/i)).toBeInTheDocument()
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/admin/rooms/imeet'),
+      expect.objectContaining({
+        method: 'PUT',
+        body: expect.stringContaining('"image_url":""'),
+      }),
+    )
+  })
+
   it('shows an add photo button for existing rooms', async () => {
     vi.stubGlobal('fetch', mockAdminRoomsApi())
 
@@ -1202,7 +1228,13 @@ function mockAdminRoomsApi() {
     if (url.endsWith('/api/admin/rooms') && !init?.method) {
       return jsonResponse({
         data: [
-          apiRoom({ id: 'imeet', name: 'iMEET Room', business_id: 'chisinau', location: 'iHUB Chisinau' }),
+          apiRoom({
+            id: 'imeet',
+            name: 'iMEET Room',
+            business_id: 'chisinau',
+            location: 'iHUB Chisinau',
+            image_url: 'https://example.test/imeet.jpg',
+          }),
           apiRoom({
             id: 'yellow-conference',
             name: 'Yellow Conference Room',

@@ -1817,6 +1817,17 @@ function RoomOverview({
                   }}
                 />
               </label>
+              {room.imageUrl ? (
+                <button
+                  type="button"
+                  className="danger-button room-photo-button"
+                  aria-label={`Delete photo for ${room.name}`}
+                  onClick={() => onUpdateImage(room.id, '')}
+                >
+                  <Trash2 size={18} />
+                  Delete photo
+                </button>
+              ) : null}
             </article>
           )
         })}
