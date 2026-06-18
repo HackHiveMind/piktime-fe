@@ -423,6 +423,30 @@ select {
   background: var(--ihub-green);
 }
 
+.photo-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.room-photo-button {
+  width: 100%;
+}
+
+.photo-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .danger-button {
   width: 100%;
   justify-content: center;

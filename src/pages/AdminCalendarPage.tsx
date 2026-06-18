@@ -908,11 +908,14 @@ export function AdminCalendarPage() {
                   placeholder="https://..."
                 />
               </label>
-              <label>
-                Upload image
+              <label className="secondary-button photo-upload-button">
+                <Plus size={18} />
+                Add photo
                 <input
+                  className="photo-file-input"
                   type="file"
                   accept="image/*"
+                  aria-label="Upload new room image"
                   onChange={(event) => {
                     void updateNewRoomImageFromFile(event.target.files?.[0] ?? null)
                   }}
@@ -1780,9 +1783,11 @@ function RoomOverview({
                   placeholder="https://..."
                 />
               </label>
-              <label className="room-business-setting">
-                Upload image
+              <label className="secondary-button photo-upload-button room-photo-button">
+                <Plus size={18} />
+                Add photo for {room.name}
                 <input
+                  className="photo-file-input"
                   aria-label={`Upload image for ${room.name}`}
                   type="file"
                   accept="image/*"

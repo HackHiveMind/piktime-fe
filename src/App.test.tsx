@@ -563,6 +563,21 @@ describe('app routes', () => {
     )
   })
 
+  it('shows an add photo button for existing rooms', async () => {
+    vi.stubGlobal('fetch', mockAdminRoomsApi())
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    switchToChisinau()
+    fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+
+    expect(screen.getByText(/add photo for iMEET Room/i)).toBeInTheDocument()
+  })
+
   it('keeps room business assignments after the admin page reloads', async () => {
     vi.stubGlobal('fetch', mockAdminRoomsApi())
 
