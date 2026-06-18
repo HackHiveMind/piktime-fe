@@ -8,6 +8,13 @@ const JSON_HEADERS = {
 }
 export const ADMIN_API_TOKEN_STORAGE_KEY = 'ihub-admin-api-token'
 
+export class AdminApiAuthError extends Error {
+  constructor(message = 'Admin session expired.') {
+    super(message)
+    this.name = 'AdminApiAuthError'
+  }
+}
+
 export type ApiRoom = {
   id: string
   name: string
@@ -145,6 +152,10 @@ export async function deleteAdminReservation(reservationId: string): Promise<voi
     headers: getRequestHeaders('/admin/reservations'),
   })
 
+  if (response.status === 401) {
+    throw new AdminApiAuthError(await getErrorMessage(response))
+  }
+
   if (!response.ok) {
     throw new Error(await getErrorMessage(response))
   }
@@ -185,7 +196,7 @@ async function getJson<T>(path: string): Promise<T> {
     headers: getRequestHeaders(path),
   })
 
-  return parseJsonResponse<T>(response)
+  return parseJsonResponse<T>(response, path)
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -195,7 +206,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   })
 
-  return parseJsonResponse<T>(response)
+  return parseJsonResponse<T>(response, path)
 }
 
 async function putJson<T>(path: string, body: unknown): Promise<T> {
@@ -205,7 +216,7 @@ async function putJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   })
 
-  return parseJsonResponse<T>(response)
+  return parseJsonResponse<T>(response, path)
 }
 
 export function initAdminApiTokenFromUrl() {
@@ -223,6 +234,18 @@ export function initAdminApiTokenFromUrl() {
   sessionStorage.setItem(ADMIN_API_TOKEN_STORAGE_KEY, token)
   url.searchParams.delete('admin_token')
   window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+}
+
+export function getAdminLoginUrl(): string {
+  return `${API_BASE_URL.replace(/\/api$/, '')}/admin/login`
+}
+
+export function redirectToAdminLogin(): void {
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem(ADMIN_API_TOKEN_STORAGE_KEY)
+  }
+
+  window.location.href = getAdminLoginUrl()
 }
 
 function getRequestHeaders(path: string): Record<string, string> {
@@ -283,8 +306,12 @@ function assertApiRoom(room: ApiRoom): ApiRoom {
   return room
 }
 
-async function parseJsonResponse<T>(response: Response): Promise<T> {
+async function parseJsonResponse<T>(response: Response, path: string): Promise<T> {
   const data = await response.json()
+
+  if (response.status === 401 && path.startsWith('/admin/')) {
+    throw new AdminApiAuthError(data.message ?? 'Admin session expired.')
+  }
 
   if (!response.ok) {
     throw new Error(data.message ?? 'API request failed.')

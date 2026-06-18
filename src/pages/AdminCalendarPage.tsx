@@ -49,11 +49,13 @@ import {
   upsertReservation,
 } from '../services/reservationStore'
 import {
+  AdminApiAuthError,
   createAdminReservation,
   createAdminRoom,
   deleteAdminReservation,
   fetchAdminRooms,
   fetchAdminReservations,
+  redirectToAdminLogin,
   updateAdminReservation,
   updateAdminRoom,
 } from '../services/bookingApi'
@@ -148,7 +150,12 @@ export function AdminCalendarPage() {
         const normalizedRooms = withBusinessAssignments(backendRooms)
         saveStoredRooms(normalizedRooms)
         setRooms(normalizedRooms)
-      } catch {
+      } catch (error) {
+        if (error instanceof AdminApiAuthError) {
+          redirectToAdminLogin()
+          return
+        }
+
         // Keep stored room settings visible when the room API is temporarily unavailable.
       }
 
@@ -161,7 +168,12 @@ export function AdminCalendarPage() {
 
         saveReservations(backendReservations)
         setReservations(backendReservations)
-      } catch {
+      } catch (error) {
+        if (error instanceof AdminApiAuthError) {
+          redirectToAdminLogin()
+          return
+        }
+
         // Keep the local cache visible when the API is temporarily unavailable.
       }
     }

@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  AdminApiAuthError,
   createAdminReservation,
   createAdminRoom,
   deleteAdminReservation,
@@ -12,6 +13,7 @@ import {
   fetchRooms,
   initAdminApiTokenFromUrl,
   mapApiReservation,
+  getAdminLoginUrl,
   updateAdminReservation,
   updateAdminRoom,
 } from './bookingApi'
@@ -99,6 +101,21 @@ describe('booking api', () => {
     expect(sessionStorage.getItem('ihub-admin-api-token')).toBe('admin-token-123')
     expect(window.location.pathname).toBe('/admin')
     expect(window.location.search).toBe('?view=calendar')
+  })
+
+  it('marks unauthorized admin responses as expired admin sessions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ message: 'Unauthenticated.' }, 401),
+      ),
+    )
+
+    await expect(fetchAdminRooms()).rejects.toBeInstanceOf(AdminApiAuthError)
+  })
+
+  it('builds the admin login URL from the API base URL', () => {
+    expect(getAdminLoginUrl()).toBe('http://127.0.0.1:8000/admin/login')
   })
 
   it('creates an admin room through the backend', async () => {
