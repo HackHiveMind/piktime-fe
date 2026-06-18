@@ -601,7 +601,9 @@ export function AdminCalendarPage() {
   const assignRoomBusiness = async (roomId: string, businessId: string) => {
     const business = getBusinessById(businessId)
     const nextRooms = rooms.map((room) =>
-      room.id === roomId ? { ...room, businessId: business.id, location: business.name } : room,
+      room.id === roomId
+        ? { ...room, businessId: business.id, location: business.name, accent: business.accent }
+        : room,
     )
     const updatedRoom = nextRooms.find((room) => room.id === roomId)
 

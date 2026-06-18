@@ -55,6 +55,52 @@ describe('app routes', () => {
     expect(roomButtons[1]).toContain('Yellow Conference Room')
   })
 
+  it('shows public room photos and derives card accents from room business', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/api/rooms')) {
+          return jsonResponse({
+            data: [
+              apiRoom({
+                id: 'loft',
+                name: 'Loft Room',
+                business_id: 'yellow',
+                location: 'iHUB Yellow',
+                accent: '#74bd45',
+                image_url: 'https://example.test/loft.jpg',
+              }),
+            ],
+          })
+        }
+
+        if (url.includes('/api/rooms/loft/availability')) {
+          return jsonResponse({
+            data: {
+              room_id: 'loft',
+              date: currentDate,
+              slots: [],
+            },
+          })
+        }
+
+        return jsonResponse({ data: { slots: [] } })
+      }),
+    )
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    const roomImage = await screen.findByAltText('Loft Room')
+    const roomCard = screen.getByRole('button', { name: /loft room/i })
+
+    expect(roomImage.parentElement).toHaveClass('room-card-avatar')
+    expect(roomCard).toHaveStyle({ '--room-accent': '#f7de05' })
+  })
+
   it('opens a room slots page after selecting a public room card', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>

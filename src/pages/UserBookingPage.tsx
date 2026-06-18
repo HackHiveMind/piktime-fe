@@ -427,6 +427,7 @@ function findRoom(rooms: Room[], roomId: string): Room | undefined {
 
 function mergeRoomMetadata(room: Room): Room {
   const localRoom = fallbackRooms.find((item) => item.id === room.id)
+  const businessAccent = getBusinessAccent(room.businessId ?? localRoom?.businessId)
 
   return {
     id: room.id,
@@ -435,8 +436,21 @@ function mergeRoomMetadata(room: Room): Room {
     businessId: room.businessId ?? localRoom?.businessId,
     location: room.location || localRoom?.location || 'iHUB',
     amenities: room.amenities.length > 0 ? room.amenities : localRoom?.amenities ?? [],
-    accent: room.accent || localRoom?.accent || '#74bd45',
+    accent: businessAccent ?? room.accent ?? localRoom?.accent ?? '#74bd45',
+    imageUrl: room.imageUrl ?? localRoom?.imageUrl ?? '',
   }
+}
+
+function getBusinessAccent(businessId?: string): string | undefined {
+  if (businessId === 'yellow') {
+    return '#f7de05'
+  }
+
+  if (businessId === 'chisinau') {
+    return '#74bd45'
+  }
+
+  return undefined
 }
 
 function orderConferenceRoomsFirst(roomList: Room[]): Room[] {
