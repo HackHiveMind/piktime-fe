@@ -72,6 +72,7 @@ type BusinessResource = {
   id: string
   name: string
   shortName: string
+  accent: string
 }
 
 type ModalState =
@@ -94,8 +95,8 @@ const adminSections: Array<{
 ]
 
 const businessResources: BusinessResource[] = [
-  { id: 'chisinau', name: 'iHUB Chisinau', shortName: 'IH' },
-  { id: 'yellow', name: 'iHUB Yellow', shortName: 'IH' },
+  { id: 'chisinau', name: 'iHUB Chisinau', shortName: 'IH', accent: '#74bd45' },
+  { id: 'yellow', name: 'iHUB Yellow', shortName: 'IH', accent: '#f7de05' },
 ]
 
 const ROOMS_STORAGE_KEY = 'ihub-admin-rooms'
@@ -1665,7 +1666,11 @@ function RoomOverview({
           const roomBusinessId = getRoomBusinessId(room)
 
           return (
-            <article key={room.id} className="room-admin-card" style={{ '--room-accent': room.accent } as CSSProperties}>
+            <article
+              key={room.id}
+              className="room-admin-card"
+              style={{ '--room-accent': getBusinessById(roomBusinessId).accent } as CSSProperties}
+            >
               <span className="room-card-accent" />
               <strong>{room.name}</strong>
               <small>

@@ -515,6 +515,9 @@ describe('app routes', () => {
     fireEvent.click(screen.getByRole('button', { name: /current business/i }))
     fireEvent.click(screen.getByRole('button', { name: /iHUB Chisinau/i }))
     fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+    expect(screen.getByLabelText(/business for iMEET Room/i).closest('.room-admin-card')).toHaveStyle({
+      '--room-accent': '#74bd45',
+    })
     fireEvent.change(screen.getByLabelText(/business for iMEET Room/i), {
       target: { value: 'yellow' },
     })
@@ -523,6 +526,13 @@ describe('app routes', () => {
       expect(screen.getByText(/Room moved/i)).toBeInTheDocument()
     })
     expect(screen.queryByLabelText(/business for iMEET Room/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /current business/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^iHUB Yellow$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+    expect(screen.getByLabelText(/business for iMEET Room/i).closest('.room-admin-card')).toHaveStyle({
+      '--room-accent': '#f7de05',
+    })
   })
 
   it('keeps room business assignments after the admin page reloads', async () => {
