@@ -535,6 +535,34 @@ describe('app routes', () => {
     })
   })
 
+  it('lets admin update a room image from the rooms section', async () => {
+    const fetchMock = mockAdminRoomsApi()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    switchToChisinau()
+    fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+    fireEvent.change(screen.getByRole('textbox', { name: /^image for iMEET Room$/i }), {
+      target: { value: 'https://example.test/imeet-new.jpg' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Room image updated/i)).toBeInTheDocument()
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/admin/rooms/imeet'),
+      expect.objectContaining({
+        method: 'PUT',
+        body: expect.stringContaining('"image_url":"https://example.test/imeet-new.jpg"'),
+      }),
+    )
+  })
+
   it('keeps room business assignments after the admin page reloads', async () => {
     vi.stubGlobal('fetch', mockAdminRoomsApi())
 
@@ -1137,6 +1165,7 @@ function mockAdminRoomsApi() {
           location: body.location,
           amenities: body.amenities,
           accent: body.accent,
+          image_url: body.image_url,
         }),
       }, 201)
     }
@@ -1154,6 +1183,7 @@ function mockAdminRoomsApi() {
           location: body.location,
           amenities: body.amenities,
           accent: body.accent,
+          image_url: body.image_url,
         }),
       })
     }
@@ -1174,6 +1204,7 @@ function apiRoom(overrides: Partial<{
   location: string
   amenities: string[]
   accent: string
+  image_url: string
 }> = {}) {
   return {
     id: 'imeet',
@@ -1183,6 +1214,7 @@ function apiRoom(overrides: Partial<{
     location: 'iHUB Chisinau',
     amenities: [],
     accent: '#f7de05',
+    image_url: '',
     ...overrides,
   }
 }

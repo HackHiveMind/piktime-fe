@@ -75,6 +75,13 @@ type BusinessResource = {
   accent: string
 }
 
+type NewRoomForm = {
+  name: string
+  capacity: string
+  businessId: string
+  imageUrl: string
+}
+
 type ModalState =
   | { mode: 'create'; date: string; startTime: string; roomId: string; copySourceId?: string }
   | { mode: 'edit'; reservation: Reservation }
@@ -550,6 +557,7 @@ export function AdminCalendarPage() {
       location: business.name,
       amenities: [],
       accent: '#f7de05',
+      imageUrl: newRoomForm.imageUrl.trim(),
       businessId: business.id,
     }
 
@@ -601,6 +609,37 @@ export function AdminCalendarPage() {
           : `Room moved locally to ${business.name}.`,
       )
     }
+  }
+
+  const updateRoomImage = async (roomId: string, imageUrl: string) => {
+    const nextRooms = rooms.map((room) => (room.id === roomId ? { ...room, imageUrl } : room))
+    const updatedRoom = nextRooms.find((room) => room.id === roomId)
+
+    setRooms(nextRooms)
+
+    if (!updatedRoom) {
+      return
+    }
+
+    try {
+      const savedRoom = await updateAdminRoom(updatedRoom)
+      setRooms((currentRooms) =>
+        currentRooms.map((room) => (room.id === roomId ? withBusinessAssignments([savedRoom])[0] : room)),
+      )
+      setMessage('Room image updated.')
+    } catch (error) {
+      setMessage(error instanceof Error ? `Room image saved locally. ${error.message}` : 'Room image saved locally.')
+    }
+  }
+
+  const updateNewRoomImageFromFile = async (file: File | null) => {
+    if (!file) {
+      return
+    }
+
+    const imageUrl = await readImageFile(file)
+
+    setNewRoomForm((currentForm) => ({ ...currentForm, imageUrl }))
   }
 
   const shiftCalendar = (direction: -1 | 1) => {
@@ -799,6 +838,7 @@ export function AdminCalendarPage() {
             reservations={visibleReservations}
             onAddRoom={openAddRoomModal}
             onAssignBusiness={assignRoomBusiness}
+            onUpdateImage={updateRoomImage}
           />
         ) : null}
 
@@ -848,7 +888,28 @@ export function AdminCalendarPage() {
                   ))}
                 </select>
               </label>
+              <label>
+                Room image URL
+                <input
+                  value={newRoomForm.imageUrl}
+                  onChange={(event) => setNewRoomForm({ ...newRoomForm, imageUrl: event.target.value })}
+                  placeholder="https://..."
+                />
+              </label>
+              <label>
+                Upload image
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    void updateNewRoomImageFromFile(event.target.files?.[0] ?? null)
+                  }}
+                />
+              </label>
             </div>
+            {newRoomForm.imageUrl ? (
+              <img className="room-image-preview" src={newRoomForm.imageUrl} alt="New room preview" />
+            ) : null}
             <div className="modal-actions">
               <button type="button" className="text-button" onClick={() => setIsAddingRoom(false)}>
                 Cancel
@@ -1644,12 +1705,14 @@ function RoomOverview({
   reservations,
   onAddRoom,
   onAssignBusiness,
+  onUpdateImage,
 }: {
   rooms: Room[]
   businessResources: BusinessResource[]
   reservations: Reservation[]
   onAddRoom: () => void
   onAssignBusiness: (roomId: string, businessId: string) => void
+  onUpdateImage: (roomId: string, imageUrl: string) => void
 }) {
   return (
     <section className="room-admin-section">
@@ -1672,6 +1735,9 @@ function RoomOverview({
               style={{ '--room-accent': getBusinessById(roomBusinessId).accent } as CSSProperties}
             >
               <span className="room-card-accent" />
+              {room.imageUrl ? (
+                <img className="room-admin-image" src={room.imageUrl} alt={`${room.name} preview`} />
+              ) : null}
               <strong>{room.name}</strong>
               <small>
                 <MapPin size={15} />
@@ -1692,6 +1758,30 @@ function RoomOverview({
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="room-business-setting">
+                Image
+                <input
+                  aria-label={`Image for ${room.name}`}
+                  value={room.imageUrl ?? ''}
+                  onChange={(event) => onUpdateImage(room.id, event.target.value)}
+                  placeholder="https://..."
+                />
+              </label>
+              <label className="room-business-setting">
+                Upload image
+                <input
+                  aria-label={`Upload image for ${room.name}`}
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+
+                    if (file) {
+                      void readImageFile(file).then((imageUrl) => onUpdateImage(room.id, imageUrl))
+                    }
+                  }}
+                />
               </label>
             </article>
           )
@@ -1780,11 +1870,12 @@ function emptyBlockFormData(roomId: string, startTime: string, endTime: string):
   }
 }
 
-function emptyRoomForm(businessId: string) {
+function emptyRoomForm(businessId: string): NewRoomForm {
   return {
     name: '',
     capacity: '8',
     businessId,
+    imageUrl: '',
   }
 }
 
@@ -1875,6 +1966,20 @@ function withBusinessAssignments(rooms: Room[]): Room[] {
       businessId,
       location: getBusinessById(businessId).name,
     }
+  })
+}
+
+function readImageFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.addEventListener('load', () => {
+      resolve(String(reader.result ?? ''))
+    })
+    reader.addEventListener('error', () => {
+      reject(reader.error ?? new Error('Could not read image file.'))
+    })
+    reader.readAsDataURL(file)
   })
 }
 

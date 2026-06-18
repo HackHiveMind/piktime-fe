@@ -18,6 +18,11 @@ export function RoomCard({ room, selected, availableCount, onSelect }: RoomCardP
       onClick={onSelect}
     >
       <span className="room-card-accent" />
+      {room.imageUrl ? (
+        <span className="room-card-media">
+          <img src={room.imageUrl} alt={room.name} />
+        </span>
+      ) : null}
       <span className="room-card-title">{room.name}</span>
       <span className="room-card-meta">
         <span>
@@ -38,4 +43,3 @@ export function RoomCard({ room, selected, availableCount, onSelect }: RoomCardP
     </button>
   )
 }
-

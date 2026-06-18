@@ -43,6 +43,7 @@ describe('booking api', () => {
         location: '',
         amenities: [],
         accent: '#f7de05',
+        imageUrl: '',
       },
     ])
     expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/rooms', {
@@ -66,6 +67,7 @@ describe('booking api', () => {
               location: 'iHUB Chisinau',
               amenities: ['TV'],
               accent: '#74bd45',
+              image_url: 'https://example.test/imeet.jpg',
             },
           ],
         }),
@@ -81,6 +83,7 @@ describe('booking api', () => {
         location: 'iHUB Chisinau',
         amenities: ['TV'],
         accent: '#74bd45',
+        imageUrl: 'https://example.test/imeet.jpg',
       },
     ])
     expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/admin/rooms', {
@@ -113,6 +116,7 @@ describe('booking api', () => {
             location: 'iHUB Yellow',
             amenities: [],
             accent: '#f7de05',
+            image_url: 'https://example.test/podcast.jpg',
           },
         }, 201),
       ),
@@ -127,6 +131,7 @@ describe('booking api', () => {
         location: 'iHUB Yellow',
         amenities: [],
         accent: '#f7de05',
+        imageUrl: 'https://example.test/podcast.jpg',
       }),
     ).resolves.toMatchObject({ id: 'podcast-studio', businessId: 'yellow' })
     expect(fetch).toHaveBeenCalledWith(
@@ -145,6 +150,7 @@ describe('booking api', () => {
           location: 'iHUB Yellow',
           amenities: [],
           accent: '#f7de05',
+          image_url: 'https://example.test/podcast.jpg',
         }),
       }),
     )
@@ -165,6 +171,7 @@ describe('booking api', () => {
             location: 'iHUB Yellow',
             amenities: [],
             accent: '#74bd45',
+            image_url: 'https://example.test/imeet-new.jpg',
           },
         }),
       ),
@@ -179,11 +186,23 @@ describe('booking api', () => {
         location: 'iHUB Yellow',
         amenities: [],
         accent: '#74bd45',
+        imageUrl: 'https://example.test/imeet-new.jpg',
       }),
     ).resolves.toMatchObject({ id: 'imeet', businessId: 'yellow' })
     expect(fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/admin/rooms/imeet',
-      expect.objectContaining({ method: 'PUT' }),
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          name: 'iMEET Room',
+          capacity: 8,
+          business_id: 'yellow',
+          location: 'iHUB Yellow',
+          amenities: [],
+          accent: '#74bd45',
+          image_url: 'https://example.test/imeet-new.jpg',
+        }),
+      }),
     )
   })
 

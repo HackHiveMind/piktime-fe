@@ -16,6 +16,7 @@ export type ApiRoom = {
   location?: string | null
   amenities?: string[]
   accent?: string | null
+  image_url?: string | null
   is_active?: boolean
 }
 
@@ -175,6 +176,7 @@ export function mapApiRoom(room: ApiRoom): Room {
     location: room.location ?? '',
     amenities: room.amenities ?? [],
     accent: room.accent ?? '#f7de05',
+    imageUrl: room.image_url ?? '',
   }
 }
 
@@ -250,6 +252,7 @@ function roomToApiPayload(room: Room) {
     location: room.location,
     amenities: room.amenities,
     accent: room.accent,
+    image_url: room.imageUrl ?? '',
   }
 }
 
