@@ -110,6 +110,9 @@ const businessResources: BusinessResource[] = [
 
 const ROOMS_STORAGE_KEY = 'ihub-admin-rooms'
 const ACTIVE_BUSINESS_STORAGE_KEY = 'ihub-admin-active-business'
+const ROOM_IMAGE_MAX_DATA_URL_LENGTH = 900_000
+const ROOM_IMAGE_MAX_DIMENSION = 900
+const ROOM_IMAGE_QUALITIES = [0.82, 0.72, 0.62, 0.52, 0.42]
 
 export function AdminCalendarPage() {
   const [rooms, setRooms] = useState<Room[]>(() => getStoredRooms())
@@ -649,9 +652,14 @@ export function AdminCalendarPage() {
       return
     }
 
-    const imageUrl = await readImageFile(file)
+    try {
+      const imageUrl = await readImageFile(file)
 
-    setNewRoomForm((currentForm) => ({ ...currentForm, imageUrl }))
+      setNewRoomForm((currentForm) => ({ ...currentForm, imageUrl }))
+      setMessage('Room photo ready.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not prepare room photo.')
+    }
   }
 
   const shiftCalendar = (direction: -1 | 1) => {
@@ -851,6 +859,7 @@ export function AdminCalendarPage() {
             onAddRoom={openAddRoomModal}
             onAssignBusiness={assignRoomBusiness}
             onUpdateImage={updateRoomImage}
+            onPhotoError={setMessage}
           />
         ) : null}
 
@@ -1721,6 +1730,7 @@ function RoomOverview({
   onAddRoom,
   onAssignBusiness,
   onUpdateImage,
+  onPhotoError,
 }: {
   rooms: Room[]
   businessResources: BusinessResource[]
@@ -1728,6 +1738,7 @@ function RoomOverview({
   onAddRoom: () => void
   onAssignBusiness: (roomId: string, businessId: string) => void
   onUpdateImage: (roomId: string, imageUrl: string) => void
+  onPhotoError: (message: string) => void
 }) {
   return (
     <section className="room-admin-section">
@@ -1795,7 +1806,11 @@ function RoomOverview({
                     const file = event.target.files?.[0]
 
                     if (file) {
-                      void readImageFile(file).then((imageUrl) => onUpdateImage(room.id, imageUrl))
+                      void readImageFile(file)
+                        .then((imageUrl) => onUpdateImage(room.id, imageUrl))
+                        .catch((error) => {
+                          onPhotoError(error instanceof Error ? error.message : 'Could not prepare room photo.')
+                        })
                     }
                   }}
                 />
@@ -1986,7 +2001,23 @@ function withBusinessAssignments(rooms: Room[]): Room[] {
   })
 }
 
-function readImageFile(file: File): Promise<string> {
+async function readImageFile(file: File): Promise<string> {
+  const originalDataUrl = await readFileAsDataUrl(file)
+
+  if (originalDataUrl.length <= ROOM_IMAGE_MAX_DATA_URL_LENGTH) {
+    return originalDataUrl
+  }
+
+  const compressedDataUrl = await compressImageDataUrl(originalDataUrl)
+
+  if (compressedDataUrl.length <= ROOM_IMAGE_MAX_DATA_URL_LENGTH) {
+    return compressedDataUrl
+  }
+
+  throw new Error('Photo is too large. Please choose a smaller image.')
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
 
@@ -1997,6 +2028,47 @@ function readImageFile(file: File): Promise<string> {
       reject(reader.error ?? new Error('Could not read image file.'))
     })
     reader.readAsDataURL(file)
+  })
+}
+
+async function compressImageDataUrl(dataUrl: string): Promise<string> {
+  const image = await loadImage(dataUrl)
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    return dataUrl
+  }
+
+  const scale = Math.min(1, ROOM_IMAGE_MAX_DIMENSION / Math.max(image.width, image.height))
+  canvas.width = Math.max(1, Math.round(image.width * scale))
+  canvas.height = Math.max(1, Math.round(image.height * scale))
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+
+  let bestDataUrl = dataUrl
+
+  for (const quality of ROOM_IMAGE_QUALITIES) {
+    const compressedDataUrl = canvas.toDataURL('image/jpeg', quality)
+
+    if (compressedDataUrl.length < bestDataUrl.length) {
+      bestDataUrl = compressedDataUrl
+    }
+
+    if (compressedDataUrl.length <= ROOM_IMAGE_MAX_DATA_URL_LENGTH) {
+      return compressedDataUrl
+    }
+  }
+
+  return bestDataUrl
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+
+    image.addEventListener('load', () => resolve(image))
+    image.addEventListener('error', () => reject(new Error('Could not prepare room photo.')))
+    image.src = dataUrl
   })
 }
 
