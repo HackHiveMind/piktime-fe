@@ -224,11 +224,6 @@ select {
   box-shadow: 0 12px 30px rgba(24, 33, 47, 0.06);
 }
 
-.room-card.has-image {
-  grid-template-columns: auto 1fr;
-  align-items: center;
-}
-
 .room-card.selected,
 .selected-room-summary {
   border-color: var(--room-accent);
@@ -265,6 +260,13 @@ select {
 .room-card-content {
   display: grid;
   gap: 10px;
+  min-width: 0;
+}
+
+.room-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   min-width: 0;
 }
 

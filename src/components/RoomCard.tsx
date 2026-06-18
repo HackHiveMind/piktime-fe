@@ -18,13 +18,15 @@ export function RoomCard({ room, selected, availableCount, onSelect }: RoomCardP
       onClick={onSelect}
     >
       <span className="room-card-accent" />
-      {room.imageUrl ? (
-        <span className="room-card-avatar">
-          <img src={room.imageUrl} alt={room.name} />
-        </span>
-      ) : null}
       <span className="room-card-content">
-        <span className="room-card-title">{room.name}</span>
+        <span className="room-card-heading">
+          {room.imageUrl ? (
+            <span className="room-card-avatar">
+              <img src={room.imageUrl} alt={room.name} />
+            </span>
+          ) : null}
+          <span className="room-card-title">{room.name}</span>
+        </span>
         <span className="room-card-meta">
           <span>
             <Users size={16} />

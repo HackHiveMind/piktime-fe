@@ -18,6 +18,7 @@ describe('RoomCard', () => {
     )
 
     expect(screen.getByAltText('Book LOFT').parentElement).toHaveClass('room-card-avatar')
+    expect(screen.getByAltText('Book LOFT').closest('.room-card-heading')).toHaveTextContent('Book LOFT')
   })
 })
 
