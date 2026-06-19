@@ -37,11 +37,6 @@ export function RoomCard({ room, selected, availableCount, onSelect }: RoomCardP
             {room.location}
           </span>
         </span>
-        <span className="amenity-row">
-          {room.amenities.map((amenity) => (
-            <span key={amenity}>{amenity}</span>
-          ))}
-        </span>
         <span className="availability-pill">{availableCount} sloturi libere</span>
       </span>
     </button>

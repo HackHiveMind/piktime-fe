@@ -290,13 +290,6 @@ select {
   gap: 8px;
 }
 
-.amenity-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.amenity-row span,
 .availability-pill {
   width: fit-content;
   padding: 6px 9px;
