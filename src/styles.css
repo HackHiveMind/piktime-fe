@@ -224,6 +224,11 @@ select {
   box-shadow: 0 12px 30px rgba(24, 33, 47, 0.06);
 }
 
+.room-card {
+  min-height: 178px;
+  height: 100%;
+}
+
 .room-card.selected,
 .selected-room-summary {
   border-color: var(--room-accent);
@@ -260,6 +265,7 @@ select {
 .room-card-content {
   display: grid;
   gap: 10px;
+  grid-template-rows: auto auto 1fr;
   min-width: 0;
 }
 
@@ -291,6 +297,7 @@ select {
 }
 
 .availability-pill {
+  align-self: end;
   width: fit-content;
   padding: 6px 9px;
   color: #344054;
