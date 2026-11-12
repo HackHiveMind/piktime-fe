@@ -22,6 +22,7 @@ import type { ReservationStatus } from '../domain/types'
 describe('booking api', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['ro-MD'])
     sessionStorage.clear()
     window.history.replaceState(null, '', '/')
   })
@@ -283,6 +284,7 @@ describe('booking api', () => {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          locale: 'ro',
           room_id: 'imeet',
           date: '2026-06-10',
           start_time: '09:00',

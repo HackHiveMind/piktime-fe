@@ -42,10 +42,13 @@ export type Reservation = ReservationFormData & {
 
 export type RoomBlockFormData = {
   roomId: string
+  date?: string
   startTime: string
   endTime: string
   notes?: string
 }
+
+export type OpeningHours = Array<{ open: string; close: string } | null>
 
 export type RoomBlock = RoomBlockFormData & {
   id: string

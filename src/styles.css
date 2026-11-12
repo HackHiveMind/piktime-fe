@@ -1626,6 +1626,39 @@ main:has(.admin-workspace) {
   font-weight: 500;
 }
 
+.daily-reservation-content {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  min-height: 0;
+  padding: 0 0 12px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: grab;
+}
+
+.reservation-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  cursor: ns-resize;
+  touch-action: none;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.reservation-resize-handle:focus-visible {
+  outline: 2px solid #262216;
+}
+
 .daily-reservation-block.status-pending {
   background: #e6edb3;
   border-color: #b9bd73;

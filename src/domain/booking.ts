@@ -80,7 +80,7 @@ export function findConflictingReservation(
 
 export function findConflictingRoomBlock(
   blocks: RoomBlock[],
-  candidate: Pick<RoomBlockFormData, 'roomId' | 'startTime' | 'endTime'>,
+  candidate: Pick<RoomBlockFormData, 'roomId' | 'date' | 'startTime' | 'endTime'>,
   ignoreBlockId?: string,
 ): RoomBlock | undefined {
   const candidateStart = timeToMinutes(candidate.startTime)
@@ -93,6 +93,7 @@ export function findConflictingRoomBlock(
     return (
       block.id !== ignoreBlockId &&
       block.roomId === candidate.roomId &&
+      (!block.date || block.date === candidate.date) &&
       blockStart < candidateEnd &&
       candidateStart < blockEnd
     )
@@ -111,6 +112,7 @@ export function createReservation(formData: ReservationFormData): Reservation {
 export function createRoomBlock(formData: RoomBlockFormData): RoomBlock {
   return {
     roomId: formData.roomId,
+    date: formData.date,
     startTime: formData.startTime,
     endTime: formData.endTime,
     notes: formData.notes?.trim() ?? '',
