@@ -3,16 +3,36 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import { getReservations, saveReservations, saveRoomBlocks } from './services/reservationStore'
-import type { Reservation, RoomBlock } from './domain/types'
+import { getReservations, saveReservations } from './services/reservationStore'
+import type { Reservation } from './domain/types'
+import { getPublicBookingSlots } from './domain/booking'
+import { rooms } from './data/rooms'
 
 describe('app routes', () => {
   const currentDate = new Date().toISOString().slice(0, 10)
 
   beforeEach(() => {
     localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/rooms')) return jsonResponse({ data: rooms.map((room) => ({ id: room.id, name: room.name, capacity: room.capacity })) })
+      if (url.includes('/availability?')) {
+        const request = new URL(url)
+        const date = request.searchParams.get('date')
+        const slots = getPublicBookingSlots().map((slot) => ({ ...slot, available: true }))
+        const roomId = request.pathname.match(/\/rooms\/([^/]+)\/availability$/)?.[1]
+        return jsonResponse({
+          data: roomId ? { room_id: roomId, date, slots } : rooms.map((room) => ({ room_id: room.id, date, slots })),
+        })
+      }
+      if (url.endsWith('/api/admin/room-blocks') && init?.method === 'POST') {
+        return jsonResponse({ data: { ...JSON.parse(String(init.body)), id: 'saved-block', created_at: '2030-11-04T10:00:00Z' } }, 201)
+      }
+      if (url.endsWith('/api/admin/room-blocks/saved-block') && init?.method === 'DELETE') return jsonResponse({}, 204)
+      return jsonResponse({ message: 'Unexpected API request' }, 404)
+    }))
   })
 
   afterEach(() => {
@@ -55,6 +75,69 @@ describe('app routes', () => {
     expect(roomButtons[1]).toContain('Yellow Conference Room')
   })
 
+  it('loads availability for all public rooms in one request per selected date', async () => {
+    render(<MemoryRouter><App /></MemoryRouter>)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /imeet room/i })).toHaveTextContent('23'))
+    const date = screen.getByLabelText(/data rezervarii/i)
+    fireEvent.change(date, { target: { value: '2030-11-04' } })
+
+    const availabilityUrls = vi.mocked(fetch).mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('/availability?'))
+    expect(availabilityUrls).toEqual([
+      expect.stringMatching(/\/api\/availability\?date=\d{4}-\d{2}-\d{2}$/),
+      expect.stringMatching(/\/api\/availability\?date=2030-11-04$/),
+    ])
+    await waitFor(() => expect(screen.getByRole('button', { name: /imeet room/i })).toHaveTextContent('23'))
+  })
+
+  it('shows public room photos and derives card accents from room business', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.endsWith('/api/rooms')) {
+          return jsonResponse({
+            data: [
+              apiRoom({
+                id: 'loft',
+                name: 'Loft Room',
+                business_id: 'yellow',
+                location: 'iHUB Yellow',
+                accent: '#74bd45',
+                image_url: 'https://example.test/loft.jpg',
+              }),
+            ],
+          })
+        }
+
+        if (url.includes('/api/availability?')) {
+          return jsonResponse({
+            data: [{
+              room_id: 'loft',
+              date: currentDate,
+              slots: [],
+            }],
+          })
+        }
+
+        return jsonResponse({ data: { slots: [] } })
+      }),
+    )
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    const roomImage = await screen.findByAltText('Loft Room')
+    const roomCard = screen.getByRole('button', { name: /loft room/i })
+
+    expect(roomImage.parentElement).toHaveClass('room-card-avatar')
+    expect(roomCard).toHaveStyle({ '--room-accent': '#f7de05' })
+  })
+
   it('opens a room slots page after selecting a public room card', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
@@ -66,7 +149,7 @@ describe('app routes', () => {
 
     expect(await screen.findByRole('heading', { name: /sloturi disponibile/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /toate salile/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /09:00Liber/i })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /09:00Liber/i })).toBeInTheDocument()
   })
 
   it('opens the booking form page after selecting a public slot', async () => {
@@ -175,14 +258,10 @@ describe('app routes', () => {
     expect(screen.getByText(/Completeaza numele/i)).toBeInTheDocument()
   })
 
-  it('marks user slots blocked by admin room blocks as unavailable', async () => {
-    saveRoomBlocks([
-      roomBlock({
-        roomId: 'imeet',
-        startTime: '13:00',
-        endTime: '15:00',
-      }),
-    ])
+  it('uses server availability for blocked slots without browser storage', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url.endsWith('/api/rooms')
+      ? jsonResponse({ data: [{ id: 'imeet', name: 'iMEET Room', capacity: 8 }] })
+      : jsonResponse({ data: { room_id: 'imeet', date: '2026-06-16', slots: getPublicBookingSlots().map((slot) => ({ ...slot, available: slot.start < '12:30' || slot.start >= '15:00' })) } })))
 
     render(
       <MemoryRouter initialEntries={['/rooms/imeet?date=2026-06-16']}>
@@ -190,9 +269,9 @@ describe('app routes', () => {
       </MemoryRouter>,
     )
 
-    expect(await screen.findByRole('button', { name: /13:00Blocat/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /14:30Blocat/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /15:00Liber/i })).not.toBeDisabled()
+    expect(await screen.findByRole('button', { name: /15:00Liber/i })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: /13:00Ocupat/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /14:30Ocupat/i })).toBeDisabled()
   })
 
   it('renders admin calendar with existing reservation details', () => {
@@ -436,10 +515,10 @@ describe('app routes', () => {
       )
     })
     expect(screen.queryByText(/Exista deja o rezervare/i)).not.toBeInTheDocument()
-    expect(getReservations()).toEqual(expect.arrayContaining([
+    await waitFor(() => expect(getReservations()).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'backend-created', email: 'ana@example.com' }),
       expect.objectContaining({ id: 'stale-local', roomId: 'loft' }),
-    ]))
+    ])))
   })
 
   it('renders Picktime-like admin controls for views, search, filters, and status', () => {
@@ -515,6 +594,9 @@ describe('app routes', () => {
     fireEvent.click(screen.getByRole('button', { name: /current business/i }))
     fireEvent.click(screen.getByRole('button', { name: /iHUB Chisinau/i }))
     fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+    expect(screen.getByLabelText(/business for iMEET Room/i).closest('.room-admin-card')).toHaveStyle({
+      '--room-accent': '#74bd45',
+    })
     fireEvent.change(screen.getByLabelText(/business for iMEET Room/i), {
       target: { value: 'yellow' },
     })
@@ -523,6 +605,82 @@ describe('app routes', () => {
       expect(screen.getByText(/Room moved/i)).toBeInTheDocument()
     })
     expect(screen.queryByLabelText(/business for iMEET Room/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /current business/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^iHUB Yellow$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+    expect(screen.getByLabelText(/business for iMEET Room/i).closest('.room-admin-card')).toHaveStyle({
+      '--room-accent': '#f7de05',
+    })
+  })
+
+  it('lets admin update a room image from the rooms section', async () => {
+    const fetchMock = mockAdminRoomsApi()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    switchToChisinau()
+    fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+    fireEvent.change(screen.getByRole('textbox', { name: /^image for iMEET Room$/i }), {
+      target: { value: 'https://example.test/imeet-new.jpg' },
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Room image updated/i)).toBeInTheDocument()
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/admin/rooms/imeet'),
+      expect.objectContaining({
+        method: 'PUT',
+        body: expect.stringContaining('"image_url":"https://example.test/imeet-new.jpg"'),
+      }),
+    )
+  })
+
+  it('lets admin delete a room image from the rooms section', async () => {
+    const fetchMock = mockAdminRoomsApi()
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    switchToChisinau()
+    fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /delete photo for iMEET Room/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Room image updated/i)).toBeInTheDocument()
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/admin/rooms/imeet'),
+      expect.objectContaining({
+        method: 'PUT',
+        body: expect.stringContaining('"image_url":""'),
+      }),
+    )
+  })
+
+  it('shows an add photo button for existing rooms', async () => {
+    vi.stubGlobal('fetch', mockAdminRoomsApi())
+
+    render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <App />
+      </MemoryRouter>,
+    )
+
+    switchToChisinau()
+    fireEvent.click(screen.getByRole('button', { name: /rooms/i }))
+
+    expect(screen.getByText(/add photo for iMEET Room/i)).toBeInTheDocument()
   })
 
   it('keeps room business assignments after the admin page reloads', async () => {
@@ -740,7 +898,7 @@ describe('app routes', () => {
     expect(screen.getByText(new RegExp(`${currentDate}, 13:00 - 13:30`, 'i'))).toBeInTheDocument()
   })
 
-  it('lets admin create and remove indefinite room blocks', () => {
+  it('lets admin create and remove dated room blocks through the API', async () => {
     render(
       <MemoryRouter initialEntries={['/admin']}>
         <App />
@@ -754,12 +912,12 @@ describe('app routes', () => {
     fireEvent.change(screen.getByLabelText(/end time/i), { target: { value: '15:00' } })
     fireEvent.click(screen.getByRole('button', { name: /block room/i }))
 
-    expect(screen.getByText(/Blocked indefinitely/i)).toBeInTheDocument()
+    expect(await screen.findByText(`Blocat pe ${currentDate}`)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /Blocked iMEET Room 1pm - 3pm/i }))
     fireEvent.click(screen.getByRole('button', { name: /unblock/i }))
 
-    expect(screen.queryByText(/Blocked indefinitely/i)).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText(`Blocat pe ${currentDate}`)).not.toBeInTheDocument())
   })
 
   it('lets admin create bookings on multiple dates and skips occupied dates', async () => {
@@ -887,9 +1045,8 @@ describe('app routes', () => {
       expect(postedDates).toEqual(['2026-06-20', '2026-06-21'])
     })
 
-    await waitFor(() => {
-      expect(screen.queryByRole('heading', { name: /new booking/i })).not.toBeInTheDocument()
-    })
+    expect(screen.getByRole('heading', { name: /new booking/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /se salvează/i })).toBeDisabled()
     expect(getReservations().filter((item) => item.email === 'ion@example.com')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ date: '2026-06-20', startTime: '13:00', endTime: '15:00' }),
@@ -1005,6 +1162,56 @@ describe('app routes', () => {
       }),
     )
   })
+  it.each(['Sala este închisă în intervalul selectat.', 'Emailul nu este valid.'])('keeps booking details and shows the backend rejection: %s', async (reason) => {
+    const request = vi.fn(async (_url: string, options?: RequestInit) => options?.method === 'POST'
+      ? jsonResponse({ message: reason }, 422) : jsonResponse({ message: 'Not mocked' }, 404))
+    vi.stubGlobal('fetch', request)
+    render(<StrictMode><MemoryRouter initialEntries={['/admin']}><App /></MemoryRouter></StrictMode>)
+    switchToChisinau()
+    fireEvent.click(screen.getByRole('button', { name: /new booking/i }))
+    fireEvent.change(screen.getByLabelText(/^date$/i), { target: { value: '2030-11-04' } })
+    fireEvent.change(screen.getByLabelText(/^nume$/i), { target: { value: 'Marin' } })
+    fireEvent.change(screen.getByLabelText(/prenume/i), { target: { value: 'Ion' } })
+    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'ion@example.test' } })
+    fireEvent.change(screen.getByLabelText(/telefon/i), { target: { value: '060111222' } })
+    fireEvent.click(screen.getByRole('button', { name: /create booking/i }))
+    await screen.findByText(`Nu s-a creat nicio rezervare. 2030-11-04: ${reason}`)
+    expect(screen.getByRole('heading', { name: /new booking/i })).toBeInTheDocument()
+    expect(screen.getByDisplayValue('ion@example.test')).toBeInTheDocument()
+    expect(screen.queryByText(/Created 0 bookings/)).not.toBeInTheDocument()
+    expect(getReservations()).toHaveLength(0)
+    expect(request.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(1)
+  })
+
+  it.each([true, false])('saves a resized booking and restores it if rejected (success=%s)', async (success) => {
+    const original = reservation({ id: 'resize-test', date: currentDate, startTime: '10:00', endTime: '11:00' })
+    saveReservations([original])
+    const request = vi.fn(async (_url: string, options?: RequestInit) => {
+      if (options?.method === 'PUT') {
+        return success ? jsonResponse({ data: { ...JSON.parse(String(options.body)), id: original.id, created_at: original.createdAt } })
+          : jsonResponse({ message: 'Sala este închisă.' }, 422)
+      }
+      return jsonResponse({}, 404)
+    })
+    vi.stubGlobal('fetch', request)
+    render(<MemoryRouter initialEntries={['/admin']}><App /></MemoryRouter>)
+    switchToChisinau()
+    fireEvent.keyDown(screen.getByRole('slider', { name: /Modifică durata rezervării/ }), { key: 'ArrowDown' })
+    await screen.findByText(success ? 'Durata rezervării a fost actualizată.' : 'Modificarea rezervării a eșuat. Sala este închisă.')
+    await waitFor(() => expect(getReservations()[0].endTime).toBe(success ? '11:30' : '11:00'))
+    const options = request.mock.calls.find(([, value]) => value?.method === 'PUT')?.[1]
+    expect(JSON.parse(String(options?.body))).toMatchObject({ start_time: '10:00', end_time: '11:30', date: currentDate, room_id: 'imeet' })
+  })
+
+  it('does not submit an empty admin booking or hide the form', () => {
+    const request = vi.fn(async () => jsonResponse({}, 404))
+    vi.stubGlobal('fetch', request)
+    render(<MemoryRouter initialEntries={['/admin']}><App /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /new booking/i }))
+    fireEvent.click(screen.getByRole('button', { name: /create booking/i }))
+    expect(screen.getByText('Completează numele, prenumele, emailul și telefonul.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /new booking/i })).toBeInTheDocument()
+  })
 })
 
 function reservation(overrides: Partial<Reservation>): Reservation {
@@ -1019,18 +1226,6 @@ function reservation(overrides: Partial<Reservation>): Reservation {
     email: 'guest@example.com',
     phone: '060000000',
     status: 'confirmed',
-    notes: '',
-    createdAt: '2026-05-31T12:00:00.000Z',
-    ...overrides,
-  }
-}
-
-function roomBlock(overrides: Partial<RoomBlock>): RoomBlock {
-  return {
-    id: 'block-default',
-    roomId: 'imeet',
-    startTime: '09:00',
-    endTime: '10:00',
     notes: '',
     createdAt: '2026-05-31T12:00:00.000Z',
     ...overrides,
@@ -1103,7 +1298,13 @@ function mockAdminRoomsApi() {
     if (url.endsWith('/api/admin/rooms') && !init?.method) {
       return jsonResponse({
         data: [
-          apiRoom({ id: 'imeet', name: 'iMEET Room', business_id: 'chisinau', location: 'iHUB Chisinau' }),
+          apiRoom({
+            id: 'imeet',
+            name: 'iMEET Room',
+            business_id: 'chisinau',
+            location: 'iHUB Chisinau',
+            image_url: 'https://example.test/imeet.jpg',
+          }),
           apiRoom({
             id: 'yellow-conference',
             name: 'Yellow Conference Room',
@@ -1127,6 +1328,7 @@ function mockAdminRoomsApi() {
           location: body.location,
           amenities: body.amenities,
           accent: body.accent,
+          image_url: body.image_url,
         }),
       }, 201)
     }
@@ -1144,6 +1346,7 @@ function mockAdminRoomsApi() {
           location: body.location,
           amenities: body.amenities,
           accent: body.accent,
+          image_url: body.image_url,
         }),
       })
     }
@@ -1164,6 +1367,7 @@ function apiRoom(overrides: Partial<{
   location: string
   amenities: string[]
   accent: string
+  image_url: string
 }> = {}) {
   return {
     id: 'imeet',
@@ -1173,6 +1377,7 @@ function apiRoom(overrides: Partial<{
     location: 'iHUB Chisinau',
     amenities: [],
     accent: '#f7de05',
+    image_url: '',
     ...overrides,
   }
 }

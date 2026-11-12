@@ -14,13 +14,14 @@ import {
   Users,
 } from 'lucide-react'
 import type { CSSProperties, DragEvent } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ReservationForm } from '../components/ReservationForm'
+import { RoomScheduleEditor } from '../components/RoomScheduleEditor'
+import { ReservationResizeHandle } from '../components/ReservationResizeHandle'
 import { rooms as defaultRooms } from '../data/rooms'
 import {
   RESERVATION_STATUSES,
   createReservation,
-  createRoomBlock,
   filterReservations,
   findConflictingReservation,
   findConflictingRoomBlock,
@@ -40,25 +41,28 @@ import type {
   RoomBlockFormData,
 } from '../domain/types'
 import {
-  deleteRoomBlock,
   deleteReservation,
-  getRoomBlocks,
   getReservations,
   saveReservations,
-  upsertRoomBlock,
   upsertReservation,
 } from '../services/reservationStore'
 import {
+  AdminApiAuthError,
   createAdminReservation,
   createAdminRoom,
   deleteAdminReservation,
   fetchAdminRooms,
   fetchAdminReservations,
+  redirectToAdminLogin,
   updateAdminReservation,
   updateAdminRoom,
+  fetchRoomBlocks,
+  saveRoomBlock,
+  removeRoomBlock,
 } from '../services/bookingApi'
 
 const today = getToday()
+type ReservationChange = { date: string; startTime?: string; roomId?: string; endTime?: string }
 const calendarViews: CalendarView[] = ['week', 'day', 'month']
 const calendarViewLabels: Record<CalendarView, string> = {
   week: 'Weekly',
@@ -72,6 +76,14 @@ type BusinessResource = {
   id: string
   name: string
   shortName: string
+  accent: string
+}
+
+type NewRoomForm = {
+  name: string
+  capacity: string
+  businessId: string
+  imageUrl: string
 }
 
 type ModalState =
@@ -94,12 +106,15 @@ const adminSections: Array<{
 ]
 
 const businessResources: BusinessResource[] = [
-  { id: 'chisinau', name: 'iHUB Chisinau', shortName: 'IH' },
-  { id: 'yellow', name: 'iHUB Yellow', shortName: 'IH' },
+  { id: 'chisinau', name: 'iHUB Chisinau', shortName: 'IH', accent: '#74bd45' },
+  { id: 'yellow', name: 'iHUB Yellow', shortName: 'IH', accent: '#f7de05' },
 ]
 
 const ROOMS_STORAGE_KEY = 'ihub-admin-rooms'
 const ACTIVE_BUSINESS_STORAGE_KEY = 'ihub-admin-active-business'
+const ROOM_IMAGE_MAX_DATA_URL_LENGTH = 900_000
+const ROOM_IMAGE_MAX_DIMENSION = 900
+const ROOM_IMAGE_QUALITIES = [0.82, 0.72, 0.62, 0.52, 0.42]
 
 export function AdminCalendarPage() {
   const [rooms, setRooms] = useState<Room[]>(() => getStoredRooms())
@@ -108,7 +123,9 @@ export function AdminCalendarPage() {
   const [isAddingRoom, setIsAddingRoom] = useState(false)
   const [newRoomForm, setNewRoomForm] = useState(() => emptyRoomForm(businessResources[0].id))
   const [reservations, setReservations] = useState<Reservation[]>(() => getReservations())
-  const [roomBlocks, setRoomBlocks] = useState<RoomBlock[]>(() => getRoomBlocks())
+  const [roomBlocks, setRoomBlocks] = useState<RoomBlock[]>([])
+  const [blockSaving, setBlockSaving] = useState(false)
+  const [scheduleRoomId, setScheduleRoomId] = useState('')
   const [section, setSection] = useState<AdminSection>('calendar')
   const [calendarView, setCalendarView] = useState<CalendarView>('day')
   const [anchorDate, setAnchorDate] = useState(today)
@@ -125,6 +142,12 @@ export function AdminCalendarPage() {
   const [additionalDates, setAdditionalDates] = useState<string[]>([])
   const [additionalDateDraft, setAdditionalDateDraft] = useState('')
   const [message, setMessage] = useState('')
+  const [bookingSaving, setBookingSaving] = useState(false)
+  const bookingSubmission = useRef(false)
+
+  useEffect(() => {
+    saveReservations(reservations)
+  }, [reservations])
 
   useEffect(() => {
     let isActive = true
@@ -140,7 +163,12 @@ export function AdminCalendarPage() {
         const normalizedRooms = withBusinessAssignments(backendRooms)
         saveStoredRooms(normalizedRooms)
         setRooms(normalizedRooms)
-      } catch {
+      } catch (error) {
+        if (error instanceof AdminApiAuthError) {
+          redirectToAdminLogin()
+          return
+        }
+
         // Keep stored room settings visible when the room API is temporarily unavailable.
       }
 
@@ -153,8 +181,18 @@ export function AdminCalendarPage() {
 
         saveReservations(backendReservations)
         setReservations(backendReservations)
-      } catch {
-        // Keep the local cache visible when the API is temporarily unavailable.
+        try {
+          const backendBlocks = await fetchRoomBlocks()
+          if (isActive) setRoomBlocks(backendBlocks)
+        } catch {
+          if (isActive) setMessage((current) => current || 'Blocajele nu au putut fi încărcate. Reîncarcă pagina pentru a vedea datele actuale.')
+        }
+      } catch (error) {
+        if (error instanceof AdminApiAuthError) {
+          redirectToAdminLogin()
+          return
+        }
+
       }
     }
 
@@ -216,6 +254,7 @@ export function AdminCalendarPage() {
     if (block) {
       setBlockFormData({
         roomId: block.roomId,
+        date: block.date,
         startTime: block.startTime,
         endTime: block.endTime,
         notes: block.notes,
@@ -226,7 +265,7 @@ export function AdminCalendarPage() {
     }
 
     const roomId = effectiveRoomFilter === 'all' ? activeBusinessRooms[0]?.id ?? rooms[0].id : effectiveRoomFilter
-    setBlockFormData(emptyBlockFormData(roomId, '09:00', '10:00'))
+    setBlockFormData({ ...emptyBlockFormData(roomId, '09:00', '10:00'), date: anchorDate })
     setModal({ mode: 'block-create' })
     setMessage('')
   }
@@ -296,6 +335,17 @@ export function AdminCalendarPage() {
   }
 
   const handleSubmit = async () => {
+    if (bookingSubmission.current || !modal || modal.mode === 'block-create' || modal.mode === 'block-edit') return
+
+    if (!isDateInputValue(formData.date)) {
+      setMessage('Alege o dată validă pentru rezervare.')
+      return
+    }
+
+    if (!formData.firstName.trim() || !formData.lastName.trim() || !formData.email.trim() || !formData.phone.trim()) {
+      setMessage('Completează numele, prenumele, emailul și telefonul.')
+      return
+    }
     if (timeToMinutes(formData.endTime ?? getEndTimeLabel(formData.startTime)) <= timeToMinutes(formData.startTime)) {
       setMessage('Ora de final trebuie sa fie dupa ora de start.')
       return
@@ -314,6 +364,7 @@ export function AdminCalendarPage() {
 
     const blockConflict = findConflictingRoomBlock(roomBlocks, {
       roomId: formData.roomId,
+      date: formData.date,
       startTime: formData.startTime,
       endTime: formData.endTime ?? getEndTimeLabel(formData.startTime),
     })
@@ -343,6 +394,7 @@ export function AdminCalendarPage() {
         const nextFormData = { ...formData, date }
         const blockConflict = findConflictingRoomBlock(roomBlocks, {
           roomId: nextFormData.roomId,
+          date: nextFormData.date,
           startTime: nextFormData.startTime,
           endTime: nextFormData.endTime ?? getEndTimeLabel(nextFormData.startTime),
         })
@@ -369,15 +421,22 @@ export function AdminCalendarPage() {
         })
       }
 
+      if (reservationRequests.length === 0) {
+        setMessage(`Nu s-a creat nicio rezervare. Intervalele sunt ocupate sau blocate: ${skippedDates.join(', ')}.`)
+        return
+      }
+
+      bookingSubmission.current = true
+      setBookingSaving(true)
       saveReservations(nextReservations)
       setReservations(nextReservations)
-      setModal(null)
-      setAdditionalDates([])
-      setAdditionalDateDraft('')
       setMessage(`Saving ${optimisticReservations.length} booking${optimisticReservations.length === 1 ? '' : 's'}...`)
 
-      Promise.allSettled(reservationRequests.map((request) => request.promise)).then((reservationResults) => {
+      try {
+        const reservationResults = await Promise.allSettled(reservationRequests.map((request) => request.promise))
         const successCount = reservationResults.filter((result) => result.status === 'fulfilled').length
+        const failures = reservationResults.flatMap((result, index) => result.status === 'rejected'
+          ? [`${reservationRequests[index].date}: ${result.reason instanceof Error ? result.reason.message : 'Rezervarea nu a putut fi salvată.'}`] : [])
 
         setReservations((currentReservations) => {
           let resolvedReservations = currentReservations
@@ -393,35 +452,48 @@ export function AdminCalendarPage() {
               return
             }
 
-            skippedDates.push(request.date)
             resolvedReservations = resolvedReservations.filter(
               (reservation) => reservation.id !== request.optimisticReservation.id,
             )
           })
 
-          saveReservations(resolvedReservations)
-
           return resolvedReservations
         })
-        setMessage(getBatchCreateMessage(successCount, skippedDates))
-      })
+        if (successCount > 0) {
+          setModal(null)
+          setAdditionalDates([])
+          setAdditionalDateDraft('')
+        }
+        setMessage([
+          successCount > 0 ? getBatchCreateMessage(successCount, skippedDates) : 'Nu s-a creat nicio rezervare.',
+          ...failures,
+        ].join(' '))
+      } finally {
+        bookingSubmission.current = false
+        setBookingSaving(false)
+      }
       return
     }
 
-    const reservation =
-      modal?.mode === 'edit'
-        ? await updateAdminReservation(updateReservation(modal.reservation, formData))
-        : await createAdminReservation(formData)
-    const nextReservations = upsertReservation(reservation)
-
-    setReservations(nextReservations)
-    setModal(null)
-    setMessage(modal?.mode === 'edit' ? 'Booking updated.' : 'Booking created.')
+    bookingSubmission.current = true
+    setBookingSaving(true)
+    try {
+      const reservation = await updateAdminReservation(updateReservation(modal.reservation, formData))
+      const nextReservations = upsertReservation(reservation)
+      setReservations(nextReservations)
+      setModal(null)
+      setMessage('Booking updated.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Rezervarea nu a putut fi salvată.')
+    } finally {
+      bookingSubmission.current = false
+      setBookingSaving(false)
+    }
   }
 
   const handleMoveReservation = async (
     reservationId: string,
-    move: { date: string; startTime?: string; roomId?: string },
+    move: ReservationChange,
   ) => {
     const reservation = reservations.find((item) => item.id === reservationId)
 
@@ -435,8 +507,13 @@ export function AdminCalendarPage() {
       ...reservation,
       date: move.date,
       startTime,
-      endTime: move.startTime ? addMinutes(startTime, duration) : reservation.endTime,
+      endTime: move.endTime ?? (move.startTime ? addMinutes(startTime, duration) : reservation.endTime),
       roomId: move.roomId ?? reservation.roomId,
+    }
+
+    if (movedReservation.endTime <= startTime || movedReservation.endTime > '21:00') {
+      setMessage('Ora de final trebuie să fie după ora de început și cel târziu la 21:00.')
+      return
     }
 
     if (findConflictingReservation(reservations, movedReservation, reservation.id)) {
@@ -463,11 +540,11 @@ export function AdminCalendarPage() {
 
       setReservations(nextReservations)
       saveReservations(nextReservations)
-      setMessage('Booking moved.')
+      setMessage(move.endTime ? 'Durata rezervării a fost actualizată.' : 'Booking moved.')
     } catch (error) {
       setReservations(reservations)
       saveReservations(reservations)
-      setMessage(error instanceof Error ? `Booking move failed. ${error.message}` : 'Booking move failed.')
+      setMessage(error instanceof Error ? `Modificarea rezervării a eșuat. ${error.message}` : 'Modificarea rezervării a eșuat.')
     }
   }
 
@@ -488,7 +565,8 @@ export function AdminCalendarPage() {
     }
   }
 
-  const handleBlockSubmit = () => {
+  const handleBlockSubmit = async () => {
+    if (blockSaving) return
     if (timeToMinutes(blockFormData.endTime) <= timeToMinutes(blockFormData.startTime)) {
       setMessage('Ora de final trebuie sa fie dupa ora de start.')
       return
@@ -501,30 +579,36 @@ export function AdminCalendarPage() {
       return
     }
 
-    const block =
-      modal?.mode === 'block-edit'
-        ? {
-            ...modal.block,
-            ...blockFormData,
-            notes: blockFormData.notes?.trim() ?? '',
-          }
-        : createRoomBlock(blockFormData)
-
-    const nextBlocks = upsertRoomBlock(block)
-    setRoomBlocks(nextBlocks)
-    setModal(null)
-    setMessage('Room block saved.')
+    setBlockSaving(true)
+    try {
+      const block = await saveRoomBlock(blockFormData, modal?.mode === 'block-edit' ? modal.block.id : undefined)
+      setRoomBlocks((current) => [...current.filter((value) => value.id !== block.id), block])
+      setModal(null)
+      setMessage('Blocajul a fost salvat.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Blocajul nu a putut fi salvat.')
+    } finally {
+      setBlockSaving(false)
+    }
   }
 
-  const handleUnblock = () => {
+  const handleUnblock = async () => {
     if (modal?.mode !== 'block-edit') {
       return
     }
 
-    const nextBlocks = deleteRoomBlock(modal.block.id)
-    setRoomBlocks(nextBlocks)
-    setModal(null)
-    setMessage('Room unblocked.')
+    if (blockSaving) return
+    setBlockSaving(true)
+    try {
+      await removeRoomBlock(modal.block.id)
+      setRoomBlocks((current) => current.filter((block) => block.id !== modal.block.id))
+      setModal(null)
+      setMessage('Blocajul a fost eliminat.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Blocajul nu a putut fi eliminat.')
+    } finally {
+      setBlockSaving(false)
+    }
   }
 
   const openAddRoomModal = () => {
@@ -549,6 +633,7 @@ export function AdminCalendarPage() {
       location: business.name,
       amenities: [],
       accent: '#f7de05',
+      imageUrl: newRoomForm.imageUrl.trim(),
       businessId: business.id,
     }
 
@@ -577,7 +662,9 @@ export function AdminCalendarPage() {
   const assignRoomBusiness = async (roomId: string, businessId: string) => {
     const business = getBusinessById(businessId)
     const nextRooms = rooms.map((room) =>
-      room.id === roomId ? { ...room, businessId: business.id, location: business.name } : room,
+      room.id === roomId
+        ? { ...room, businessId: business.id, location: business.name, accent: business.accent }
+        : room,
     )
     const updatedRoom = nextRooms.find((room) => room.id === roomId)
 
@@ -599,6 +686,42 @@ export function AdminCalendarPage() {
           ? `Room moved locally to ${business.name}. ${error.message}`
           : `Room moved locally to ${business.name}.`,
       )
+    }
+  }
+
+  const updateRoomImage = async (roomId: string, imageUrl: string) => {
+    const nextRooms = rooms.map((room) => (room.id === roomId ? { ...room, imageUrl } : room))
+    const updatedRoom = nextRooms.find((room) => room.id === roomId)
+
+    setRooms(nextRooms)
+
+    if (!updatedRoom) {
+      return
+    }
+
+    try {
+      const savedRoom = await updateAdminRoom(updatedRoom)
+      setRooms((currentRooms) =>
+        currentRooms.map((room) => (room.id === roomId ? withBusinessAssignments([savedRoom])[0] : room)),
+      )
+      setMessage('Room image updated.')
+    } catch (error) {
+      setMessage(error instanceof Error ? `Room image saved locally. ${error.message}` : 'Room image saved locally.')
+    }
+  }
+
+  const updateNewRoomImageFromFile = async (file: File | null) => {
+    if (!file) {
+      return
+    }
+
+    try {
+      const imageUrl = await readImageFile(file)
+
+      setNewRoomForm((currentForm) => ({ ...currentForm, imageUrl }))
+      setMessage('Room photo ready.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not prepare room photo.')
     }
   }
 
@@ -694,7 +817,7 @@ export function AdminCalendarPage() {
           </div>
         </header>
 
-        {message ? <p className="status-message standalone">{message}</p> : null}
+        {message && !modal ? <p className="status-message standalone">{message}</p> : null}
 
         <section className="picktime-toolbar" aria-label="Calendar controls">
           <div className="filter-pill-row">
@@ -798,9 +921,18 @@ export function AdminCalendarPage() {
             reservations={visibleReservations}
             onAddRoom={openAddRoomModal}
             onAssignBusiness={assignRoomBusiness}
+            onUpdateImage={updateRoomImage}
+            onPhotoError={setMessage}
           />
         ) : null}
 
+        {section === 'rooms' && <section className="booking-panel">
+          <label>Programul sălii<select value={scheduleRoomId} onChange={(event) => setScheduleRoomId(event.target.value)}>
+            <option value="">Alege sala</option>
+            {activeBusinessRooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}
+          </select></label>
+          {activeBusinessRooms.some((room) => room.id === scheduleRoomId) && <RoomScheduleEditor key={scheduleRoomId} roomId={scheduleRoomId} />}
+        </section>}
         {section === 'reports' ? <ReportsPanel stats={stats} reservations={visibleReservations} /> : null}
       </section>
 
@@ -847,7 +979,31 @@ export function AdminCalendarPage() {
                   ))}
                 </select>
               </label>
+              <label>
+                Room image URL
+                <input
+                  value={newRoomForm.imageUrl}
+                  onChange={(event) => setNewRoomForm({ ...newRoomForm, imageUrl: event.target.value })}
+                  placeholder="https://..."
+                />
+              </label>
+              <label className="secondary-button photo-upload-button">
+                <Plus size={18} />
+                Add photo
+                <input
+                  className="photo-file-input"
+                  type="file"
+                  accept="image/*"
+                  aria-label="Upload new room image"
+                  onChange={(event) => {
+                    void updateNewRoomImageFromFile(event.target.files?.[0] ?? null)
+                  }}
+                />
+              </label>
             </div>
+            {newRoomForm.imageUrl ? (
+              <img className="room-image-preview" src={newRoomForm.imageUrl} alt="New room preview" />
+            ) : null}
             <div className="modal-actions">
               <button type="button" className="text-button" onClick={() => setIsAddingRoom(false)}>
                 Cancel
@@ -879,6 +1035,8 @@ export function AdminCalendarPage() {
               </div>
 
               <div className="form-grid">
+                <label>Data blocajului<input type="date" value={blockFormData.date ?? anchorDate}
+                  onChange={(event) => setBlockFormData({ ...blockFormData, date: event.target.value })} /></label>
                 <label>
                   Room
                   <select
@@ -941,11 +1099,11 @@ export function AdminCalendarPage() {
               </div>
 
               <div className="modal-actions">
-                <button type="button" className="primary-button" onClick={handleBlockSubmit}>
+                <button type="button" className="primary-button" disabled={blockSaving} onClick={handleBlockSubmit}>
                   Block room
                 </button>
                 {modal.mode === 'block-edit' ? (
-                  <button type="button" className="danger-button" onClick={handleUnblock}>
+                  <button type="button" className="danger-button" disabled={blockSaving} onClick={handleUnblock}>
                     Unblock
                   </button>
                 ) : null}
@@ -1052,7 +1210,8 @@ export function AdminCalendarPage() {
             <ReservationForm
               rooms={activeBusinessRooms}
               value={formData}
-              submitLabel={modal.mode === 'edit' ? 'Save changes' : 'Create booking(s)'}
+              submitLabel={bookingSaving ? 'Se salvează…' : modal.mode === 'edit' ? 'Save changes' : 'Create booking(s)'}
+              disabled={bookingSaving}
               onChange={setFormData}
               onSubmit={handleSubmit}
             />
@@ -1149,7 +1308,7 @@ function CalendarSection({
   onCreate: (date: string, startTime: string, endTime?: string, roomId?: string) => void
   onEdit: (reservation: Reservation) => void
   onEditBlock: (block: RoomBlock) => void
-  onMove: (reservationId: string, move: { date: string; startTime?: string; roomId?: string }) => void
+  onMove: (reservationId: string, move: ReservationChange) => void
 }) {
   if (view === 'agenda') {
     return <BookingList rooms={rooms} reservations={reservations} onEdit={onEdit} />
@@ -1249,7 +1408,7 @@ function DailyResourceCalendar({
   onCreate: (date: string, startTime: string, endTime?: string, roomId?: string) => void
   onEdit: (reservation: Reservation) => void
   onEditBlock: (block: RoomBlock) => void
-  onMove: (reservationId: string, move: { date: string; startTime?: string; roomId?: string }) => void
+  onMove: (reservationId: string, move: ReservationChange) => void
 }) {
   const [dragSelection, setDragSelection] = useState<{
     roomId: string
@@ -1342,7 +1501,7 @@ function DailyResourceRow({
   onBeginSelection: (roomId: string, startTime: string) => void
   onUpdateSelection: (roomId: string, endTime: string) => void
   onFinishSelection: (roomId: string, endTime: string) => void
-  onMove: (reservationId: string, move: { date: string; startTime?: string; roomId?: string }) => void
+  onMove: (reservationId: string, move: ReservationChange) => void
 }) {
   return (
     <>
@@ -1355,7 +1514,7 @@ function DailyResourceRow({
             reservation.startTime === slot.value,
         )
         const cellBlocks = roomBlocks.filter(
-          (block) => block.roomId === room.id && block.startTime === slot.value,
+          (block) => block.date === date && block.roomId === room.id && block.startTime === slot.value,
         )
         const selectionRange =
           dragSelection && dragSelection.roomId === room.id
@@ -1382,7 +1541,8 @@ function DailyResourceRow({
               </span>
             ) : null}
             {cellReservations.map((reservation) => (
-              <ReservationBlock key={reservation.id} reservation={reservation} onEdit={onEdit} />
+              <ReservationBlock key={reservation.id} reservation={reservation} onEdit={onEdit}
+                onResize={(endTime) => onMove(reservation.id, { date: reservation.date, endTime })} />
             ))}
             {cellBlocks.map((block) => (
               <RoomBlockBlock key={block.id} block={block} room={room} onEdit={onEditBlock} />
@@ -1426,7 +1586,7 @@ function RoomBlockBlock({
       <strong>
         Blocked {room.name} {formatCompactTime(block.startTime)} - {formatCompactTime(block.endTime)}
       </strong>
-      <span>Blocked indefinitely</span>
+      <span>Blocat pe {block.date}</span>
     </button>
   )
 }
@@ -1434,25 +1594,35 @@ function RoomBlockBlock({
 function ReservationBlock({
   reservation,
   onEdit,
+  onResize,
 }: {
   reservation: Reservation
   onEdit: (reservation: Reservation) => void
+  onResize: (endTime: string) => void
 }) {
+  const [previewEnd, setPreviewEnd] = useState<string | null>(null)
+  const endTime = previewEnd ?? reservation.endTime
+
   return (
-    <button
-      type="button"
+    <div
       className={`daily-reservation-block status-${reservation.status}`}
-      draggable
+      style={{ height: `calc(44px * ${getDurationSlotSpan(reservation.startTime, endTime)})`, bottom: 'auto' }}
+      draggable={!previewEnd}
       onDragStart={(event) => handleReservationDragStart(event, reservation.id)}
-      onClick={() => onEdit(reservation)}
     >
+      <button type="button" className="daily-reservation-content" onClick={() => onEdit(reservation)}>
       <span>
-        {formatCompactTime(reservation.startTime)} - {formatCompactTime(reservation.endTime)}
+        {formatCompactTime(reservation.startTime)} - {formatCompactTime(endTime)}
       </span>
       <strong>
         {reservation.firstName} {reservation.lastName}
       </strong>
-    </button>
+      </button>
+      {reservation.status !== 'cancelled' && <ReservationResizeHandle
+        label={`Modifică durata rezervării ${reservation.firstName} ${reservation.lastName}`}
+        startTime={reservation.startTime} endTime={reservation.endTime}
+        onPreview={setPreviewEnd} onCommit={onResize} />}
+    </div>
   )
 }
 
@@ -1471,7 +1641,7 @@ function CalendarRow({
   reservations: Reservation[]
   onCreate: (date: string, startTime: string, endTime?: string, roomId?: string) => void
   onEdit: (reservation: Reservation) => void
-  onMove: (reservationId: string, move: { date: string; startTime?: string; roomId?: string }) => void
+  onMove: (reservationId: string, move: ReservationChange) => void
 }) {
   return (
     <>
@@ -1643,12 +1813,16 @@ function RoomOverview({
   reservations,
   onAddRoom,
   onAssignBusiness,
+  onUpdateImage,
+  onPhotoError,
 }: {
   rooms: Room[]
   businessResources: BusinessResource[]
   reservations: Reservation[]
   onAddRoom: () => void
   onAssignBusiness: (roomId: string, businessId: string) => void
+  onUpdateImage: (roomId: string, imageUrl: string) => void
+  onPhotoError: (message: string) => void
 }) {
   return (
     <section className="room-admin-section">
@@ -1665,8 +1839,15 @@ function RoomOverview({
           const roomBusinessId = getRoomBusinessId(room)
 
           return (
-            <article key={room.id} className="room-admin-card" style={{ '--room-accent': room.accent } as CSSProperties}>
+            <article
+              key={room.id}
+              className="room-admin-card"
+              style={{ '--room-accent': getBusinessById(roomBusinessId).accent } as CSSProperties}
+            >
               <span className="room-card-accent" />
+              {room.imageUrl ? (
+                <img className="room-admin-image" src={room.imageUrl} alt={`${room.name} preview`} />
+              ) : null}
               <strong>{room.name}</strong>
               <small>
                 <MapPin size={15} />
@@ -1688,6 +1869,47 @@ function RoomOverview({
                   ))}
                 </select>
               </label>
+              <label className="room-business-setting">
+                Image
+                <input
+                  aria-label={`Image for ${room.name}`}
+                  value={room.imageUrl ?? ''}
+                  onChange={(event) => onUpdateImage(room.id, event.target.value)}
+                  placeholder="https://..."
+                />
+              </label>
+              <label className="secondary-button photo-upload-button room-photo-button">
+                <Plus size={18} />
+                Add photo for {room.name}
+                <input
+                  className="photo-file-input"
+                  aria-label={`Upload image for ${room.name}`}
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+
+                    if (file) {
+                      void readImageFile(file)
+                        .then((imageUrl) => onUpdateImage(room.id, imageUrl))
+                        .catch((error) => {
+                          onPhotoError(error instanceof Error ? error.message : 'Could not prepare room photo.')
+                        })
+                    }
+                  }}
+                />
+              </label>
+              {room.imageUrl ? (
+                <button
+                  type="button"
+                  className="danger-button room-photo-button"
+                  aria-label={`Delete photo for ${room.name}`}
+                  onClick={() => onUpdateImage(room.id, '')}
+                >
+                  <Trash2 size={18} />
+                  Delete photo
+                </button>
+              ) : null}
             </article>
           )
         })}
@@ -1775,11 +1997,12 @@ function emptyBlockFormData(roomId: string, startTime: string, endTime: string):
   }
 }
 
-function emptyRoomForm(businessId: string) {
+function emptyRoomForm(businessId: string): NewRoomForm {
   return {
     name: '',
     capacity: '8',
     businessId,
+    imageUrl: '',
   }
 }
 
@@ -1870,6 +2093,77 @@ function withBusinessAssignments(rooms: Room[]): Room[] {
       businessId,
       location: getBusinessById(businessId).name,
     }
+  })
+}
+
+async function readImageFile(file: File): Promise<string> {
+  const originalDataUrl = await readFileAsDataUrl(file)
+
+  if (originalDataUrl.length <= ROOM_IMAGE_MAX_DATA_URL_LENGTH) {
+    return originalDataUrl
+  }
+
+  const compressedDataUrl = await compressImageDataUrl(originalDataUrl)
+
+  if (compressedDataUrl.length <= ROOM_IMAGE_MAX_DATA_URL_LENGTH) {
+    return compressedDataUrl
+  }
+
+  throw new Error('Photo is too large. Please choose a smaller image.')
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.addEventListener('load', () => {
+      resolve(String(reader.result ?? ''))
+    })
+    reader.addEventListener('error', () => {
+      reject(reader.error ?? new Error('Could not read image file.'))
+    })
+    reader.readAsDataURL(file)
+  })
+}
+
+async function compressImageDataUrl(dataUrl: string): Promise<string> {
+  const image = await loadImage(dataUrl)
+  const canvas = document.createElement('canvas')
+  const context = canvas.getContext('2d')
+
+  if (!context) {
+    return dataUrl
+  }
+
+  const scale = Math.min(1, ROOM_IMAGE_MAX_DIMENSION / Math.max(image.width, image.height))
+  canvas.width = Math.max(1, Math.round(image.width * scale))
+  canvas.height = Math.max(1, Math.round(image.height * scale))
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+
+  let bestDataUrl = dataUrl
+
+  for (const quality of ROOM_IMAGE_QUALITIES) {
+    const compressedDataUrl = canvas.toDataURL('image/jpeg', quality)
+
+    if (compressedDataUrl.length < bestDataUrl.length) {
+      bestDataUrl = compressedDataUrl
+    }
+
+    if (compressedDataUrl.length <= ROOM_IMAGE_MAX_DATA_URL_LENGTH) {
+      return compressedDataUrl
+    }
+  }
+
+  return bestDataUrl
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+
+    image.addEventListener('load', () => resolve(image))
+    image.addEventListener('error', () => reject(new Error('Could not prepare room photo.')))
+    image.src = dataUrl
   })
 }
 

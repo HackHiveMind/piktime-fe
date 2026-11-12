@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  AdminApiAuthError,
   createAdminReservation,
   createAdminRoom,
   deleteAdminReservation,
@@ -12,6 +13,7 @@ import {
   fetchRooms,
   initAdminApiTokenFromUrl,
   mapApiReservation,
+  getAdminLoginUrl,
   updateAdminReservation,
   updateAdminRoom,
 } from './bookingApi'
@@ -20,6 +22,7 @@ import type { ReservationStatus } from '../domain/types'
 describe('booking api', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['ro-MD'])
     sessionStorage.clear()
     window.history.replaceState(null, '', '/')
   })
@@ -43,6 +46,7 @@ describe('booking api', () => {
         location: '',
         amenities: [],
         accent: '#f7de05',
+        imageUrl: '',
       },
     ])
     expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/rooms', {
@@ -66,6 +70,7 @@ describe('booking api', () => {
               location: 'iHUB Chisinau',
               amenities: ['TV'],
               accent: '#74bd45',
+              image_url: 'https://example.test/imeet.jpg',
             },
           ],
         }),
@@ -81,6 +86,7 @@ describe('booking api', () => {
         location: 'iHUB Chisinau',
         amenities: ['TV'],
         accent: '#74bd45',
+        imageUrl: 'https://example.test/imeet.jpg',
       },
     ])
     expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8000/api/admin/rooms', {
@@ -98,6 +104,21 @@ describe('booking api', () => {
     expect(window.location.search).toBe('?view=calendar')
   })
 
+  it('marks unauthorized admin responses as expired admin sessions', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ message: 'Unauthenticated.' }, 401),
+      ),
+    )
+
+    await expect(fetchAdminRooms()).rejects.toBeInstanceOf(AdminApiAuthError)
+  })
+
+  it('builds the admin login URL from the API base URL', () => {
+    expect(getAdminLoginUrl()).toBe('http://127.0.0.1:8000/admin/login')
+  })
+
   it('creates an admin room through the backend', async () => {
     sessionStorage.setItem('ihub-admin-api-token', 'admin-token-123')
 
@@ -113,6 +134,7 @@ describe('booking api', () => {
             location: 'iHUB Yellow',
             amenities: [],
             accent: '#f7de05',
+            image_url: 'https://example.test/podcast.jpg',
           },
         }, 201),
       ),
@@ -127,6 +149,7 @@ describe('booking api', () => {
         location: 'iHUB Yellow',
         amenities: [],
         accent: '#f7de05',
+        imageUrl: 'https://example.test/podcast.jpg',
       }),
     ).resolves.toMatchObject({ id: 'podcast-studio', businessId: 'yellow' })
     expect(fetch).toHaveBeenCalledWith(
@@ -145,6 +168,7 @@ describe('booking api', () => {
           location: 'iHUB Yellow',
           amenities: [],
           accent: '#f7de05',
+          image_url: 'https://example.test/podcast.jpg',
         }),
       }),
     )
@@ -165,6 +189,7 @@ describe('booking api', () => {
             location: 'iHUB Yellow',
             amenities: [],
             accent: '#74bd45',
+            image_url: 'https://example.test/imeet-new.jpg',
           },
         }),
       ),
@@ -179,11 +204,23 @@ describe('booking api', () => {
         location: 'iHUB Yellow',
         amenities: [],
         accent: '#74bd45',
+        imageUrl: 'https://example.test/imeet-new.jpg',
       }),
     ).resolves.toMatchObject({ id: 'imeet', businessId: 'yellow' })
     expect(fetch).toHaveBeenCalledWith(
       'http://127.0.0.1:8000/api/admin/rooms/imeet',
-      expect.objectContaining({ method: 'PUT' }),
+      expect.objectContaining({
+        method: 'PUT',
+        body: JSON.stringify({
+          name: 'iMEET Room',
+          capacity: 8,
+          business_id: 'yellow',
+          location: 'iHUB Yellow',
+          amenities: [],
+          accent: '#74bd45',
+          image_url: 'https://example.test/imeet-new.jpg',
+        }),
+      }),
     )
   })
 
@@ -247,6 +284,7 @@ describe('booking api', () => {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          locale: 'ro',
           room_id: 'imeet',
           date: '2026-06-10',
           start_time: '09:00',

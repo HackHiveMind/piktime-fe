@@ -4,6 +4,7 @@ type ReservationFormProps = {
   rooms?: Room[]
   value: ReservationFormData
   submitLabel: string
+  disabled?: boolean
   onChange: (nextValue: ReservationFormData) => void
   onSubmit: () => void
 }
@@ -12,6 +13,7 @@ export function ReservationForm({
   rooms,
   value,
   submitLabel,
+  disabled = false,
   onChange,
   onSubmit,
 }: ReservationFormProps) {
@@ -84,7 +86,7 @@ export function ReservationForm({
         </label>
       </div>
 
-      <button type="submit" className="primary-button">
+      <button type="submit" className="primary-button" disabled={disabled}>
         {submitLabel}
       </button>
     </form>

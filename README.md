@@ -10,7 +10,15 @@ Frontend React + TypeScript pentru rezervarea salilor de conferinta.
 - Interfata admin la `/admin` cu calendar saptamanal.
 - Adminul poate crea, edita si anula rezervari.
 - Interfata publica foloseste API-ul Laravel pentru sali, disponibilitate si rezervari.
-- Interfata admin foloseste momentan `localStorage`.
+- Interfata admin foloseste API-ul pentru rezervari, programul salilor si blocaje datate.
+- Program saptamanal per sala (09:00–21:00), cu zile inchise, configurabil din sectiunea Rooms.
+- Blocajele sunt salvate pe server si respectate pe toate dispozitivele, inclusiv la reprogramare.
+- Intervalele fara disponibilitate incarcata din API nu pot fi selectate.
+
+Publicati mai intai backendul si aplicati migrarile, apoi frontendul. Blocajele
+vechi din browser nu sunt importate automat: recreati-le cu date concrete.
+Programul foloseste ora locala Europe/Chisinau. Schimbarea programului pastreaza
+rezervarile existente si se aplica rezervarilor noi si reprogramarilor.
 
 ## Comenzi
 

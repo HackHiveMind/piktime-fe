@@ -25,7 +25,7 @@ export function SlotPicker({
   selectedSlot,
   onSelectSlot,
 }: SlotPickerProps) {
-  const timeSlots = slots ?? getPublicBookingSlots().map((slot) => ({ ...slot, available: true }))
+  const timeSlots = slots ?? getPublicBookingSlots().map((slot) => ({ ...slot, available: false }))
 
   return (
     <div className="slot-grid" aria-label="Sloturi disponibile">
@@ -41,13 +41,14 @@ export function SlotPicker({
         const isBlocked = Boolean(
           findConflictingRoomBlock(roomBlocks, {
             roomId,
+            date,
             startTime: slot.start,
             endTime: slot.end,
           }),
         )
         const isSelected = selectedSlot === slot.start
         const isUnavailable = slot.available === false
-        const slotState = isBlocked ? 'Blocat' : isBooked || isUnavailable ? 'Ocupat' : 'Liber'
+        const slotState = !slots ? 'Indisponibil' : isBlocked ? 'Blocat' : isBooked || isUnavailable ? 'Ocupat' : 'Liber'
 
         return (
           <button

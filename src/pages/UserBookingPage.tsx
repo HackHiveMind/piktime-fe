@@ -13,11 +13,11 @@ import {
 import type { Reservation, ReservationFormData, Room, RoomBlock, TimeSlot } from '../domain/types'
 import {
   createPublicReservation,
+  fetchAvailability,
   fetchRoomAvailability,
   fetchRooms,
   type AvailabilitySlot,
 } from '../services/bookingApi'
-import { getRoomBlocks } from '../services/reservationStore'
 
 const today = new Date().toISOString().slice(0, 10)
 
@@ -69,7 +69,7 @@ export function RoomSlotsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [date, setDate] = useState(searchParams.get('date') || today)
-  const { rooms, availability, reservations, roomBlocks, message } = usePublicBookingData(date)
+  const { rooms, availability, reservations, roomBlocks, message } = usePublicBookingData(date, roomId)
   const room = findRoom(rooms, roomId)
 
   const handleDateChange = (nextDate: string) => {
@@ -147,7 +147,7 @@ export function RoomBookingFormPage() {
   const date = searchParams.get('date') || today
   const startTime = searchParams.get('time') || ''
   const { rooms, reservations, roomBlocks, setReservations, setAvailability, message, setMessage } =
-    usePublicBookingData(date)
+    usePublicBookingData(date, roomId)
   const room = findRoom(rooms, roomId)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState<ReservationFormData>(() =>
@@ -300,11 +300,13 @@ function BookingHero({
   )
 }
 
-function usePublicBookingData(date: string) {
+function usePublicBookingData(date: string, roomId?: string) {
   const [rooms, setRooms] = useState<Room[]>(fallbackRooms)
   const [reservations, setReservations] = useState<Reservation[]>([])
   const [availability, setAvailability] = useState<Record<string, AvailabilitySlot[]>>({})
-  const [roomBlocks] = useState<RoomBlock[]>(() => getRoomBlocks())
+  const [loadedAvailabilityKey, setLoadedAvailabilityKey] = useState<string | null>(null)
+  const availabilityKey = `${date}|${roomId ?? ''}`
+  const [roomBlocks] = useState<RoomBlock[]>([])
   const [message, setMessage] = useState('')
 
   useEffect(() => {
@@ -328,19 +330,18 @@ function usePublicBookingData(date: string) {
   }, [])
 
   useEffect(() => {
-    let isMounted = true
+    if (!date) return
 
-    Promise.all(
-      rooms.map((room) =>
-        fetchRoomAvailability(room.id, date).then((roomAvailability) => [
-          room.id,
-          roomAvailability.slots,
-        ] as const),
-      ),
-    )
-      .then((entries) => {
+    let isMounted = true
+    const request = roomId
+      ? fetchRoomAvailability(roomId, date).then((result) => [result])
+      : fetchAvailability(date)
+
+    request
+      .then((results) => {
         if (isMounted) {
-          setAvailability(Object.fromEntries(entries))
+          setAvailability(Object.fromEntries(results.map((result) => [result.roomId, result.slots])))
+          setLoadedAvailabilityKey(availabilityKey)
         }
       })
       .catch(() => {
@@ -352,13 +353,13 @@ function usePublicBookingData(date: string) {
     return () => {
       isMounted = false
     }
-  }, [date, rooms])
+  }, [availabilityKey, date, roomId])
 
   return {
     rooms,
     reservations,
     setReservations,
-    availability,
+    availability: loadedAvailabilityKey === availabilityKey ? availability : {},
     setAvailability,
     roomBlocks,
     message,
@@ -377,7 +378,7 @@ function useAvailableCounts(
     return new Map(
       rooms.map((room) => [
         room.id,
-        (availability[room.id] ?? getPublicBookingSlots().map((slot) => ({ ...slot, available: true }))).filter(
+        (availability[room.id] ?? []).filter(
           (slot) =>
             slot.available !== false &&
             !findConflictingReservation(reservations, {
@@ -427,6 +428,7 @@ function findRoom(rooms: Room[], roomId: string): Room | undefined {
 
 function mergeRoomMetadata(room: Room): Room {
   const localRoom = fallbackRooms.find((item) => item.id === room.id)
+  const businessAccent = getBusinessAccent(room.businessId ?? localRoom?.businessId)
 
   return {
     id: room.id,
@@ -435,8 +437,21 @@ function mergeRoomMetadata(room: Room): Room {
     businessId: room.businessId ?? localRoom?.businessId,
     location: room.location || localRoom?.location || 'iHUB',
     amenities: room.amenities.length > 0 ? room.amenities : localRoom?.amenities ?? [],
-    accent: room.accent || localRoom?.accent || '#74bd45',
+    accent: businessAccent ?? room.accent ?? localRoom?.accent ?? '#74bd45',
+    imageUrl: room.imageUrl ?? localRoom?.imageUrl ?? '',
   }
+}
+
+function getBusinessAccent(businessId?: string): string | undefined {
+  if (businessId === 'yellow') {
+    return '#f7de05'
+  }
+
+  if (businessId === 'chisinau') {
+    return '#74bd45'
+  }
+
+  return undefined
 }
 
 function orderConferenceRoomsFirst(roomList: Room[]): Room[] {

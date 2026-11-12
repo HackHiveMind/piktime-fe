@@ -1,4 +1,5 @@
-import type { Reservation, ReservationFormData, ReservationStatus, Room, TimeSlot } from '../domain/types'
+import type { OpeningHours, Reservation, ReservationFormData, ReservationStatus, Room, RoomBlock, RoomBlockFormData, TimeSlot } from '../domain/types'
+import { getBookingLocale } from './bookingLocale'
 
 const API_BASE_URL = normalizeApiBaseUrl(
   import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api',
@@ -8,6 +9,13 @@ const JSON_HEADERS = {
 }
 export const ADMIN_API_TOKEN_STORAGE_KEY = 'ihub-admin-api-token'
 
+export class AdminApiAuthError extends Error {
+  constructor(message = 'Admin session expired.') {
+    super(message)
+    this.name = 'AdminApiAuthError'
+  }
+}
+
 export type ApiRoom = {
   id: string
   name: string
@@ -16,6 +24,7 @@ export type ApiRoom = {
   location?: string | null
   amenities?: string[]
   accent?: string | null
+  image_url?: string | null
   is_active?: boolean
 }
 
@@ -25,6 +34,12 @@ export type AvailabilitySlot = TimeSlot & {
 
 export type RoomAvailability = {
   roomId: string
+  date: string
+  slots: AvailabilitySlot[]
+}
+
+type ApiRoomAvailability = {
+  room_id: string
   date: string
   slots: AvailabilitySlot[]
 }
@@ -72,25 +87,29 @@ export async function fetchRoomAvailability(
   roomId: string,
   date: string,
 ): Promise<RoomAvailability> {
-  const response = await getJson<{
-    data: {
-      room_id: string
-      date: string
-      slots: AvailabilitySlot[]
-    }
-  }>(`/rooms/${roomId}/availability?date=${date}`)
+  const response = await getJson<{ data: ApiRoomAvailability }>(
+    `/rooms/${roomId}/availability?date=${date}`,
+  )
 
-  return {
-    roomId: response.data.room_id,
-    date: response.data.date,
-    slots: response.data.slots,
-  }
+  return mapRoomAvailability(response.data)
+}
+
+export async function fetchAvailability(date: string): Promise<RoomAvailability[]> {
+  const query = new URLSearchParams({ date })
+  const response = await getJson<{ data: ApiRoomAvailability[] }>(`/availability?${query}`)
+
+  return response.data.map(mapRoomAvailability)
+}
+
+function mapRoomAvailability(availability: ApiRoomAvailability): RoomAvailability {
+  return { roomId: availability.room_id, date: availability.date, slots: availability.slots }
 }
 
 export async function createPublicReservation(
   reservation: ReservationFormData,
 ): Promise<Reservation> {
   const response = await postJson<{ data: ApiReservation }>('/reservations', {
+    locale: getBookingLocale(),
     room_id: reservation.roomId,
     date: reservation.date,
     start_time: reservation.startTime,
@@ -138,11 +157,61 @@ export async function fetchAdminReservations(): Promise<Reservation[]> {
   return response.data.map(mapApiReservation)
 }
 
+type ApiRoomBlock = {
+  id: string
+  room_id: string
+  date: string
+  start_time: string
+  end_time: string
+  notes: string
+  created_at: string
+}
+
+function mapRoomBlock(block: ApiRoomBlock): RoomBlock {
+  return { id: block.id, roomId: block.room_id, date: block.date, startTime: block.start_time,
+    endTime: block.end_time, notes: block.notes, createdAt: block.created_at }
+}
+
+export async function fetchRoomBlocks(): Promise<RoomBlock[]> {
+  const response = await getJson<{ data: ApiRoomBlock[] }>('/admin/room-blocks')
+  return response.data.map(mapRoomBlock)
+}
+
+export async function saveRoomBlock(block: RoomBlockFormData, identifier?: string): Promise<RoomBlock> {
+  const path = identifier ? `/admin/room-blocks/${identifier}` : '/admin/room-blocks'
+  const payload = { room_id: block.roomId, date: block.date, start_time: block.startTime,
+    end_time: block.endTime, notes: block.notes }
+  const response = identifier
+    ? await putJson<{ data: ApiRoomBlock }>(path, payload)
+    : await postJson<{ data: ApiRoomBlock }>(path, payload)
+  return mapRoomBlock(response.data)
+}
+
+export async function removeRoomBlock(identifier: string): Promise<void> {
+  const path = `/admin/room-blocks/${identifier}`
+  const response = await fetch(`${API_BASE_URL}${path}`, { method: 'DELETE', headers: getRequestHeaders(path) })
+  if (response.status === 401) throw new AdminApiAuthError()
+  if (!response.ok) throw new Error(await getErrorMessage(response))
+}
+
+export async function fetchRoomSchedule(roomId: string): Promise<OpeningHours> {
+  const response = await getJson<{ data: { opening_hours: OpeningHours } }>(`/admin/rooms/${roomId}/schedule`)
+  return response.data.opening_hours
+}
+
+export async function saveRoomSchedule(roomId: string, hours: OpeningHours): Promise<void> {
+  await putJson(`/admin/rooms/${roomId}/schedule`, { opening_hours: hours })
+}
+
 export async function deleteAdminReservation(reservationId: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/admin/reservations/${reservationId}`, {
     method: 'DELETE',
     headers: getRequestHeaders('/admin/reservations'),
   })
+
+  if (response.status === 401) {
+    throw new AdminApiAuthError(await getErrorMessage(response))
+  }
 
   if (!response.ok) {
     throw new Error(await getErrorMessage(response))
@@ -175,6 +244,7 @@ export function mapApiRoom(room: ApiRoom): Room {
     location: room.location ?? '',
     amenities: room.amenities ?? [],
     accent: room.accent ?? '#f7de05',
+    imageUrl: room.image_url ?? '',
   }
 }
 
@@ -183,7 +253,7 @@ async function getJson<T>(path: string): Promise<T> {
     headers: getRequestHeaders(path),
   })
 
-  return parseJsonResponse<T>(response)
+  return parseJsonResponse<T>(response, path)
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -193,7 +263,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   })
 
-  return parseJsonResponse<T>(response)
+  return parseJsonResponse<T>(response, path)
 }
 
 async function putJson<T>(path: string, body: unknown): Promise<T> {
@@ -203,7 +273,7 @@ async function putJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   })
 
-  return parseJsonResponse<T>(response)
+  return parseJsonResponse<T>(response, path)
 }
 
 export function initAdminApiTokenFromUrl() {
@@ -221,6 +291,18 @@ export function initAdminApiTokenFromUrl() {
   sessionStorage.setItem(ADMIN_API_TOKEN_STORAGE_KEY, token)
   url.searchParams.delete('admin_token')
   window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+}
+
+export function getAdminLoginUrl(): string {
+  return `${API_BASE_URL.replace(/\/api$/, '')}/admin/login`
+}
+
+export function redirectToAdminLogin(): void {
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem(ADMIN_API_TOKEN_STORAGE_KEY)
+  }
+
+  window.location.href = getAdminLoginUrl()
 }
 
 function getRequestHeaders(path: string): Record<string, string> {
@@ -250,6 +332,7 @@ function roomToApiPayload(room: Room) {
     location: room.location,
     amenities: room.amenities,
     accent: room.accent,
+    image_url: room.imageUrl ?? '',
   }
 }
 
@@ -280,8 +363,12 @@ function assertApiRoom(room: ApiRoom): ApiRoom {
   return room
 }
 
-async function parseJsonResponse<T>(response: Response): Promise<T> {
+async function parseJsonResponse<T>(response: Response, path: string): Promise<T> {
   const data = await response.json()
+
+  if (response.status === 401 && path.startsWith('/admin/')) {
+    throw new AdminApiAuthError(data.message ?? 'Admin session expired.')
+  }
 
   if (!response.ok) {
     throw new Error(data.message ?? 'API request failed.')
